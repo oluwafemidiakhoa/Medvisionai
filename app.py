@@ -1,9 +1,11 @@
+# app.py
 import streamlit as st
 from PIL import Image, UnidentifiedImageError
 import uuid
 import io
 import os
 import logging
+import base64 # <-- Added import for base64 encoding
 from streamlit_drawable_canvas import st_canvas # Import canvas
 from typing import Optional, Tuple, List, Dict, Any
 import pydicom # Import needed if using pydicom types directly here
@@ -104,7 +106,7 @@ with st.sidebar:
                             arr = ds.pixel_array; pixel_min=float(arr.min()); pixel_max=float(arr.max())
                         except Exception: pass
                         st.session_state.slider_wc = wc if wc is not None else (pixel_max+pixel_min)/2
-                        st.session_state.slider_ww = ww if ww is not None and ww > 0 else (pixel_max-pixel_min)*0.8
+                        st.session_state.slider_ww = ww if ww is not None and ww > 0 else (pixel_max-pixel_min)*0.8 if pixel_max > pixel_min else 1024
                         if st.session_state.processed_image is None: st.error("Failed to create base image from DICOM.")
                     else: st.error("Failed to parse DICOM file.")
                 else: # Standard image
@@ -164,7 +166,7 @@ with st.sidebar:
                      arr=ds.pixel_array; px_min=float(arr.min()); px_max=float(arr.max())
                  except Exception: pass
                  st.session_state.slider_wc = wc_reset if wc_reset is not None else (px_max+px_min)/2
-                 st.session_state.slider_ww = ww_reset if ww_reset is not None and ww_reset>0 else (px_max-px_min)*0.8
+                 st.session_state.slider_ww = ww_reset if ww_reset is not None and ww_reset>0 else (px_max-px_min)*0.8 if px_max > px_min else 1024
                  st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
                  st.rerun()
 
@@ -184,7 +186,7 @@ with st.sidebar:
         if st.session_state.roi_coords:
              if st.button("Clear Highlighted Region (ROI)", key="clear_roi"):
                  st.session_state.roi_coords = None
-                 st.session_state.canvas_drawing = None
+                 st.session_state.canvas_drawing = None # Might need adjustment depending on canvas library's state handling
                  st.rerun()
 
         if st.button("Ask Gemini", key="ask_btn"):
@@ -219,9 +221,16 @@ with st.sidebar:
             st.session_state.last_action = "generate_report_data"
             st.rerun()
 
-        if st.session_state.pdf_report_bytes:
+        # Display download button only if PDF bytes exist
+        if st.session_state.get("pdf_report_bytes"):
             report_filename = f"medivision_report_{st.session_state.session_id}.pdf"
-            st.download_button("Download PDF Report", data=st.session_state.pdf_report_bytes, file_name=report_filename, mime="application/pdf")
+            st.download_button(
+                label="Download PDF Report",
+                data=st.session_state.pdf_report_bytes,
+                file_name=report_filename,
+                mime="application/pdf",
+                key="download_pdf_button" # Added a key
+            )
 
     else:
         st.info("Upload an image to enable controls.")
@@ -235,38 +244,62 @@ col1, col2 = st.columns([2, 3]) # Image viewer slightly smaller
 with col1:
     st.subheader("Image Viewer")
     if st.session_state.display_image:
+
+        # --- Manually convert PIL Image to Base64 Data URL for Canvas ---
+        bg_image_url = None
+        try:
+            buffered = io.BytesIO()
+            st.session_state.display_image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            bg_image_url = f"data:image/png;base64,{img_str}"
+        except Exception as e:
+            st.error(f"Error preparing image for canvas: {e}")
+            logger.error(f"Error converting image to base64 for canvas: {e}", exc_info=True)
+
+
         # --- Drawable Canvas for ROI ---
-        canvas_height = 450
-        # Calculate aspect ratio correctly
-        img_w = st.session_state.display_image.width
-        img_h = st.session_state.display_image.height
-        aspect = img_w / img_h
-        canvas_width = int(canvas_height * aspect)
+        if bg_image_url: # Only display canvas if background image is ready
+            canvas_height = 450
+            img_w = st.session_state.display_image.width
+            img_h = st.session_state.display_image.height
+            aspect = img_w / img_h if img_h > 0 else 1
+            canvas_width = int(canvas_height * aspect)
 
-        # Ensure reasonable width
-        container_width = 600 # Estimate based on column split, adjust if needed
-        canvas_width = min(canvas_width, container_width)
-        canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
+            container_width = 600 # Approximate width of col1
+            canvas_width = min(canvas_width, container_width)
+            canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
 
-        st.caption("Click and drag to highlight a Region of Interest (ROI) for questions.")
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, stroke_color="rgba(255, 165, 0, 0.8)",
-            background_image=st.session_state.display_image,
-            update_streamlit=True, # Let Streamlit handle updates
-            height=canvas_height, width=canvas_width,
-            drawing_mode="rect", key="canvas",
-        )
+            st.caption("Click and drag to highlight a Region of Interest (ROI) for questions.")
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 165, 0, 0.3)",
+                stroke_width=2,
+                stroke_color="rgba(255, 165, 0, 0.8)",
+                background_image=bg_image_url, # Use the generated URL
+                update_streamlit=True,
+                height=canvas_height,
+                width=canvas_width,
+                drawing_mode="rect",
+                key="canvas",
+            )
 
-        # Process canvas results
-        if canvas_result.json_data is not None and canvas_result.json_data.get("objects"):
-             last_rect = canvas_result.json_data["objects"][-1]
-             # Store coordinates relative to the canvas size
-             st.session_state.roi_coords = {
-                  "left": int(last_rect["left"]), "top": int(last_rect["top"]),
-                  "width": int(last_rect["width"] * last_rect.get("scaleX", 1)),
-                  "height": int(last_rect["height"] * last_rect.get("scaleY", 1))
-             }
-        # No 'else' needed here; if no objects, roi_coords remains as is (or None if cleared)
+            # Process canvas results
+            if canvas_result.json_data is not None and canvas_result.json_data.get("objects"):
+                 last_rect = canvas_result.json_data["objects"][-1]
+                 # Prevent errors if width/height are somehow missing or zero
+                 rect_width = max(1, int(last_rect.get("width", 1) * last_rect.get("scaleX", 1)))
+                 rect_height = max(1, int(last_rect.get("height", 1) * last_rect.get("scaleY", 1)))
+                 st.session_state.roi_coords = {
+                      "left": int(last_rect.get("left", 0)),
+                      "top": int(last_rect.get("top", 0)),
+                      "width": rect_width,
+                      "height": rect_height
+                 }
+            # If canvas_result.json_data is None or has no objects, roi_coords remains unchanged (or None if cleared)
+
+        else:
+            # Fallback if background image failed: display the image normally
+            st.image(st.session_state.display_image, caption="Processed Image (Canvas Background Failed)", use_column_width=True)
+
 
         # --- Display DICOM Metadata (Conditional) ---
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
@@ -277,6 +310,12 @@ with col1:
                     display_val = str(value)
                     if isinstance(value, list): display_val = ", ".join(map(str, value))
                     elif isinstance(value, pydicom.uid.UID): display_val = value.name
+                    # Handle potential bytes data for display
+                    elif isinstance(value, bytes):
+                        try:
+                            display_val = value.decode('utf-8', errors='replace') # Try decoding
+                        except:
+                            display_val = f"[Binary Data ({len(value)} bytes)]"
                     meta_cols[idx%2].markdown(f"**{key}:** `{display_val}`")
                     idx+=1
 
@@ -294,9 +333,8 @@ with col2:
             with st.expander("View Conversation History"):
                 for i, (q, a) in enumerate(reversed(st.session_state.history)):
                     st.markdown(f"**Q{len(st.session_state.history)-i}:** {q}")
-                    # Use markdown for better rendering of potential formatting in answer
                     st.markdown(f"**A{len(st.session_state.history)-i}:**")
-                    st.markdown(a, unsafe_allow_html=True) # Allow basic HTML like bold from fallback
+                    st.markdown(a, unsafe_allow_html=True) # Allow bold etc from fallback
                     st.markdown("---")
     with tabs[2]: st.text_area("Disease-Specific Findings", value=st.session_state.disease_analysis, height=350, key="output_disease", disabled=True)
     with tabs[3]: st.text_area("AI Confidence Score & Justification", value=st.session_state.confidence_score, height=200, key="output_confidence", disabled=True)
@@ -314,7 +352,8 @@ if current_action:
         st.session_state.last_action = None
         st.stop()
 
-    img_for_llm = st.session_state.processed_image # Use consistent base image for LLM
+    # Use a consistent variable for the image passed to models
+    img_for_llm = st.session_state.processed_image
     roi = st.session_state.roi_coords
 
     # --- Initial Analysis ---
@@ -322,31 +361,40 @@ if current_action:
         with st.spinner("Performing initial analysis..."):
             result = run_initial_analysis(img_for_llm)
             st.session_state.initial_analysis = result
+            # Clear other analysis outputs when running initial analysis
+            st.session_state.qa_answer = ""
+            st.session_state.disease_analysis = ""
+            st.session_state.confidence_score = ""
+            # Reset history or keep? Let's keep history for now.
+            # st.session_state.history = []
+
     # --- Ask Question ---
     elif current_action == "ask":
         question = st.session_state.question_input.strip()
-        st.session_state.qa_answer = "" # Clear previous answer immediately
+        st.session_state.qa_answer = "" # Clear previous answer
         with st.spinner("Thinking... (Querying Gemini)"):
             gemini_answer, success = run_multimodal_qa(img_for_llm, question, st.session_state.history, roi)
 
         if success:
             st.session_state.qa_answer = gemini_answer
             st.session_state.history.append((question, gemini_answer))
-            st.session_state.question_input = ""
+            st.session_state.question_input = "" # Clear input box
         else:
-            st.session_state.qa_answer = f"Gemini Failed: {gemini_answer}"
+            st.session_state.qa_answer = f"Gemini Failed: {gemini_answer}" # Show Gemini error first
             st.error("Gemini query failed. Attempting Hugging Face VQA fallback...")
             with st.spinner(f"Attempting HF Fallback ({HF_VQA_MODEL_ID})..."):
                  hf_api_token_exists = os.environ.get("HF_API_TOKEN") is not None
                  if hf_api_token_exists:
+                     # Pass the base processed image, not the potentially W/L adjusted display image
                      hf_answer, hf_success = query_hf_vqa_inference_api(img_for_llm, question)
                      if hf_success:
                           fallback_display = f"**[Fallback Answer from Hugging Face VQA ({HF_VQA_MODEL_ID})]**\n\n{hf_answer}"
-                          st.session_state.qa_answer = fallback_display
-                          st.session_state.history.append((question, fallback_display))
-                          st.session_state.question_input = ""
+                          st.session_state.qa_answer = fallback_display # Overwrite Gemini error with fallback success
+                          st.session_state.history.append((question, fallback_display)) # Store HF answer
+                          st.session_state.question_input = "" # Clear input box
                           st.info("Hugging Face VQA fallback successful.")
                      else:
+                          # Append HF error to the Gemini error
                           st.session_state.qa_answer += f"\n\n---\n**Hugging Face Fallback Failed:** {hf_answer}"
                           st.error(f"Hugging Face VQA fallback also failed: {hf_answer}")
                  else:
@@ -359,6 +407,9 @@ if current_action:
         with st.spinner(f"Analyzing for {disease}..."):
             result = run_disease_analysis(img_for_llm, disease, roi)
             st.session_state.disease_analysis = result
+            # Clear other outputs
+            st.session_state.qa_answer = ""
+            st.session_state.confidence_score = ""
 
     # --- Confidence Estimation ---
     elif current_action == "confidence":
@@ -368,26 +419,30 @@ if current_action:
 
     # --- PDF Report Generation ---
     elif current_action == "generate_report_data":
-        st.session_state.pdf_report_bytes = None
+        st.session_state.pdf_report_bytes = None # Clear old data first
         with st.spinner("Generating PDF report..."):
-            img_for_report = st.session_state.display_image if st.session_state.display_image else st.session_state.processed_image
+            # Use the currently displayed image for the visual part of the report
+            img_for_report = st.session_state.display_image
             if img_for_report is None:
-                 st.error("Cannot generate report: No image available.")
+                 st.error("Cannot generate report: Display image is missing.")
             else:
-                 full_qa_history = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in st.session_state.history]) or "No Q&A."
+                 full_qa_history = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in st.session_state.history]) or "No Q&A history for this session."
                  outputs_for_report = {
-                     "Initial Analysis": st.session_state.initial_analysis or "N/A",
+                     "Initial Analysis": st.session_state.initial_analysis or "Not performed.",
                      "Conversation History": full_qa_history,
-                     "Disease-Specific Analysis": st.session_state.disease_analysis or "N/A",
-                     "Last Confidence Estimate": st.session_state.confidence_score or "N/A"
+                     "Disease-Specific Analysis": st.session_state.disease_analysis or "Not performed.",
+                     "Last Confidence Estimate": st.session_state.confidence_score or "Not estimated."
                  }
+                 # Add DICOM metadata if available
                  if st.session_state.is_dicom and st.session_state.dicom_metadata:
-                      # Format metadata nicely for PDF
                       meta_str_list = []
                       for k,v in st.session_state.dicom_metadata.items():
                            display_v = str(v)
                            if isinstance(v, list): display_v = ", ".join(map(str,v))
                            elif isinstance(v, pydicom.uid.UID): display_v = v.name
+                           elif isinstance(v, bytes):
+                               try: display_v = v.decode('utf-8', errors='replace')
+                               except: display_v = f"[Binary Data ({len(v)} bytes)]"
                            meta_str_list.append(f"{k}: {display_v}")
                       outputs_for_report["DICOM Metadata"] = "\n".join(meta_str_list)
 
@@ -397,9 +452,11 @@ if current_action:
                  if pdf_bytes:
                      st.session_state.pdf_report_bytes = pdf_bytes
                      st.success("PDF data generated. Download button available.")
-                 else: st.error("Failed to generate PDF report.")
+                 else:
+                     st.error("Failed to generate PDF report data.") # Error logged in report_utils
 
     # --- Reset Action and Rerun ---
+    # Important: Reset last_action *before* st.rerun()
     st.session_state.last_action = None
     st.rerun()
 
@@ -410,4 +467,5 @@ if current_action:
 st.markdown("---")
 st.caption(f"Session ID: `{st.session_state.session_id if st.session_state.session_id else 'N/A'}`")
 hf_token_status = "Configured" if os.environ.get("HF_API_TOKEN") else "Not Configured"
-st.caption(f"Gemini API Key: {'Configured' if os.environ.get('GEMINI_API_KEY') else 'Not Configured'} | Hugging Face Token: {hf_token_status}")
+gemini_key_status = "Configured" if os.environ.get("GEMINI_API_KEY") else "Not Configured"
+st.caption(f"Gemini API Key: {gemini_key_status} | Hugging Face Token: {hf_token_status}")
