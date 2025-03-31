@@ -1,230 +1,413 @@
-import requests
-import base64
-import io
-import logging
 import streamlit as st
-from PIL import Image
-from typing import Optional, Tuple, List, Dict # <-- Added Dict here
+from PIL import Image, UnidentifiedImageError
+import uuid
+import io
+import os
+import logging
+from streamlit_drawable_canvas import st_canvas # Import canvas
+from typing import Optional, Tuple, List, Dict, Any
+import pydicom # Import needed if using pydicom types directly here
 
+# Import functions from our modules
+from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
+from llm_interactions import (
+    run_initial_analysis, run_multimodal_qa, run_disease_analysis,
+    estimate_ai_confidence, get_gemini_api_url # Import getter to display model name
+)
+from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID # Import HF function and model ID
+from report_utils import generate_pdf_report_bytes
+# from ui_components import display_dicom_metadata, dicom_wl_sliders # Optional import
+
+# --- Basic Logging ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- Constants ---
-IMAGE_MIME_TYPE = "image/png"
-MAX_HISTORY_LEN = 5
-API_TIMEOUT = 180
+# --- Page Config ---
+st.set_page_config(page_title="MediVision QA Advanced", layout="wide", page_icon="⚕️")
 
-# --- Helper ---
-@st.cache_data(max_entries=100) # Cache image encoding
-def image_to_base64_str(image_bytes: bytes, format: str = "PNG") -> str:
-    """Converts image bytes to a base64 encoded string."""
-    img_byte = image_bytes # Assume already in correct format bytes
-    return base64.b64encode(img_byte).decode("utf-8")
+# --- Initialize Session State ---
+DEFAULT_STATE = {
+    "uploaded_file_info": None, "raw_image_bytes": None, "is_dicom": False,
+    "dicom_dataset": None, "dicom_metadata": {}, "dicom_wc": None, "dicom_ww": None,
+    "processed_image": None, "display_image": None,
+    "session_id": None, "history": [],
+    "initial_analysis": "", "qa_answer": "", "disease_analysis": "", "confidence_score": "",
+    "last_action": None, "pdf_report_bytes": None,
+    "canvas_drawing": None, "roi_coords": None,
+    # Add state for W/L sliders if managed here instead of ui_components
+    "slider_wc": None, "slider_ww": None
+}
+for key, default_value in DEFAULT_STATE.items():
+    if key not in st.session_state:
+        st.session_state[key] = default_value
 
-def get_gemini_api_url() -> Optional[str]:
-    """Retrieves Gemini API URL from secrets."""
-    try:
-        api_key = st.secrets.get("GEMINI_API_KEY")
-        if not api_key:
-            st.error("GEMINI_API_KEY not found in Streamlit secrets.")
-            return None
-        # --- Specify the desired Gemini model here ---
-        # model_name = "gemini-1.5-flash-latest" # Example: Use Flash
-        model_name = "gemini-1.5-pro-latest"  # Example: Use latest Pro (recommended)
-        # model_name = "gemini-2.5-pro-exp-03-25" # Example: Use experimental if needed
-        # -------------------------------------------
-        return f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    except Exception as e:
-        st.error(f"Error accessing Streamlit secrets for Gemini API Key: {e}")
-        return None
+# --- UI: Title & Disclaimer ---
+st.title("⚕️ MediVision QA Advanced: AI Image Analysis")
+try: # Display configured Gemini model name
+   gemini_url = get_gemini_api_url()
+   if gemini_url:
+        model_name = gemini_url.split('/')[-1].split(':')[0]
+        st.caption(f"Using Gemini Model: `{model_name}` | HF Fallback: `{HF_VQA_MODEL_ID}`")
+   else:
+        st.caption(f"Gemini Model: Not Configured | HF Fallback: `{HF_VQA_MODEL_ID}`")
+except Exception:
+    st.caption("Error reading model config.") # Should not happen if API key check passes
 
+st.markdown("---")
+st.warning("""
+    **Disclaimer:** This tool provides AI-generated analysis for informational purposes only.
+    It is **NOT** a substitute for professional medical advice, diagnosis, or treatment.
+    All outputs **MUST** be reviewed and validated by qualified healthcare professionals.
+""")
 
-# --- Prompt Templates ---
-# (Keep the same templates as before: INITIAL_ANALYSIS_PROMPT, QA_CONTEXT_PROMPT_TEMPLATE, etc.)
-# For brevity, they are omitted here, but should be included in this file.
+# ==============================================================================
+# === SIDEBAR CONTROLS =========================================================
+# ==============================================================================
+with st.sidebar:
+    st.header("Controls")
 
-INITIAL_ANALYSIS_PROMPT = """
-You are an expert AI assistant simulating a radiologist... (full prompt)
-"""
+    # --- 1. File Upload ---
+    uploaded_file = st.file_uploader(
+        "1. Upload Image (JPG, PNG, DICOM)",
+        type=["jpg", "jpeg", "png", "dcm", "dicom"],
+        key="file_uploader"
+    )
 
-QA_CONTEXT_PROMPT_TEMPLATE = """
-You are a medical expert AI assisting with the interpretation of a medical image...
+    # --- Process Upload ---
+    if uploaded_file is not None:
+        new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{uploaded_file.type}"
+        if new_file_info != st.session_state.uploaded_file_info:
+            logger.info(f"New file uploaded: {uploaded_file.name}")
+            for key in list(st.session_state.keys()):
+                 if key not in ["file_uploader"]: st.session_state[key] = DEFAULT_STATE.get(key)
 
-**Region of Interest:** {roi_info}
-**Conversation History (Most Recent First):**
-{history_text}
+            st.session_state.uploaded_file_info = new_file_info
+            st.session_state.session_id = str(uuid.uuid4())
+            st.session_state.raw_image_bytes = uploaded_file.getvalue()
+            file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+            st.session_state.is_dicom = file_ext in (".dcm", ".dicom")
 
-**Current Question:** "{question}"
+            with st.spinner("Processing file..."):
+                if st.session_state.is_dicom:
+                    st.session_state.dicom_dataset = parse_dicom(st.session_state.raw_image_bytes)
+                    if st.session_state.dicom_dataset:
+                        ds = st.session_state.dicom_dataset # shorthand
+                        st.session_state.dicom_metadata = extract_dicom_metadata(ds)
+                        wc, ww = get_default_wl(ds)
+                        st.session_state.dicom_wc, st.session_state.dicom_ww = wc, ww
+                        st.session_state.display_image = dicom_to_image(ds, wc, ww)
+                        # Generate base image using auto-scaling (no W/L) for LLM consistency
+                        st.session_state.processed_image = dicom_to_image(ds, None, None)
+                        # Initialize slider state with defaults
+                        pixel_min, pixel_max = 0, 4095
+                        try:
+                            arr = ds.pixel_array; pixel_min=float(arr.min()); pixel_max=float(arr.max())
+                        except Exception: pass
+                        st.session_state.slider_wc = wc if wc is not None else (pixel_max+pixel_min)/2
+                        st.session_state.slider_ww = ww if ww is not None and ww > 0 else (pixel_max-pixel_min)*0.8
+                        if st.session_state.processed_image is None: st.error("Failed to create base image from DICOM.")
+                    else: st.error("Failed to parse DICOM file.")
+                else: # Standard image
+                    try:
+                        img = Image.open(io.BytesIO(st.session_state.raw_image_bytes)).convert("RGB")
+                        st.session_state.processed_image = img
+                        st.session_state.display_image = img
+                        st.session_state.dicom_dataset = None # Ensure cleared
+                        st.session_state.dicom_metadata = {}
+                    except UnidentifiedImageError: st.error("Cannot identify image file format.")
+                    except Exception as e: st.error(f"Error processing image: {e}")
 
-Analyze the provided medical image again... (rest of prompt)
-"""
+            if st.session_state.processed_image:
+                 st.success("Image ready.")
+                 st.rerun()
+            else: st.error("Image processing failed.")
 
-CONFIDENCE_PROMPT_TEMPLATE = """
-Based on your most recent analysis or answer provided below... (full prompt)
-"""
+    st.markdown("---")
 
-DISEASE_SPECIFIC_PROMPT_TEMPLATE = """
-You are an expert radiologist AI. Focus *specifically* on evaluating the provided medical image for signs of **{disease}**...
+    # --- Controls requiring a processed image ---
+    if st.session_state.processed_image:
+        # --- 2. DICOM W/L Controls (Conditional) ---
+        if st.session_state.is_dicom and st.session_state.dicom_dataset:
+             st.subheader("DICOM Window/Level")
+             ds = st.session_state.dicom_dataset
+             metadata = st.session_state.dicom_metadata
+             default_wc, default_ww = st.session_state.dicom_wc, st.session_state.dicom_ww
 
-**Region of Interest:** {roi_info}
+             pixel_min, pixel_max = 0, 4095
+             try:
+                 arr = ds.pixel_array; pixel_min=float(arr.min()); pixel_max=float(arr.max())
+             except Exception: pass
+             min_level=pixel_min-(pixel_max-pixel_min); max_level=pixel_max+(pixel_max-pixel_min)
+             max_width=(pixel_max-pixel_min)*2 if pixel_max>pixel_min else 4096
 
-Address the following points... (rest of prompt)
-"""
+             # Use stored slider values from session state
+             current_wc = st.session_state.get('slider_wc', (pixel_max+pixel_min)/2)
+             current_ww = st.session_state.get('slider_ww', (pixel_max-pixel_min)*0.8 if pixel_max>pixel_min else 1024)
 
+             new_wc = st.slider("Window Center (Level)", min_value=min_level, max_value=max_level, value=current_wc, step=1.0, key="wc_slider")
+             new_ww = st.slider("Window Width", min_value=1.0, max_value=max_width, value=current_ww, step=1.0, key="ww_slider")
 
-# --- Core Gemini Interaction ---
-# @st.cache_data # Caching API calls can be complex due to changing history/prompts
-def query_gemini_vision(
-    image: Image.Image,
-    text_prompt: str,
-    ) -> Tuple[Optional[str], bool]:
-    """Sends the image and text prompt to the configured Gemini API."""
-    gemini_api_url = get_gemini_api_url()
-    if not gemini_api_url:
-        return "Error: Gemini API URL not configured.", False
+             # Update display image only if values actually changed
+             threshold = 1e-3
+             if abs(new_wc - current_wc) > threshold or abs(new_ww - current_ww) > threshold:
+                  st.session_state.slider_wc = new_wc
+                  st.session_state.slider_ww = new_ww
+                  with st.spinner("Applying Window/Level..."):
+                       st.session_state.display_image = dicom_to_image(ds, new_wc, new_ww)
+                  st.rerun() # Update the main image display
 
-    logger.info(f"Querying Gemini API: {gemini_api_url.split('?')[0]}") # Log endpoint without key
-    try:
-        buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
-        img_bytes = buffered.getvalue()
-        img_base64 = image_to_base64_str(img_bytes)
-    except Exception as e:
-        logger.error(f"Failed to encode image to base64: {e}", exc_info=True)
-        return f"Error: Failed to process image for API request ({e}).", False
+             if st.button("Reset W/L", key="reset_wl"):
+                 # Reset sliders to initial defaults and rerun
+                 wc_reset, ww_reset = get_default_wl(ds)
+                 px_min, px_max = 0, 4095
+                 try:
+                     arr=ds.pixel_array; px_min=float(arr.min()); px_max=float(arr.max())
+                 except Exception: pass
+                 st.session_state.slider_wc = wc_reset if wc_reset is not None else (px_max+px_min)/2
+                 st.session_state.slider_ww = ww_reset if ww_reset is not None and ww_reset>0 else (px_max-px_min)*0.8
+                 st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
+                 st.rerun()
 
-    payload = {
-        "contents": [{"parts": [{"text": text_prompt}, {"inline_data": {"mime_type": IMAGE_MIME_TYPE, "data": img_base64}}]}],
-        "generation_config": {"temperature": 0.3, "top_k": 32, "top_p": 0.9, "max_output_tokens": 8192, "stop_sequences": []}, # Increased tokens for Pro
-        "safety_settings": [
-            {"category": c, "threshold": "BLOCK_MEDIUM_AND_ABOVE"}
-            for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]
-        ]
-    }
-    headers = {"Content-Type": "application/json"}
+             st.markdown("---")
 
-    try:
-        response = requests.post(gemini_api_url, headers=headers, json=payload, timeout=API_TIMEOUT)
-        # Robust Error Handling & Response Parsing (keep the detailed logic from the previous version)
-        # ... (include the full try/except block with response parsing and error handling here) ...
-        # Example snippet:
-        response.raise_for_status()
-        response_data = response.json()
-        # ... (rest of parsing logic)
-        if 'candidates' in response_data and response_data['candidates']:
-             # ... check parts, text, finishReason, etc.
-             part = response_data['candidates'][0].get('content', {}).get('parts', [{}])[0]
-             if 'text' in part:
-                 logger.info("Successfully received text response from Gemini.")
-                 return part['text'], True
-             else: # Handle blocked response, errors etc.
-                 finish_reason = response_data['candidates'][0].get('finishReason', 'UNKNOWN')
-                 # ... (detailed handling)
-                 error_msg = f"Gemini Error: No text in response. Finish Reason: {finish_reason}"
-                 logger.error(error_msg)
-                 return error_msg, False
-        # ... (handle promptFeedback, other errors)
+        # --- 3. Analysis Buttons ---
+        st.subheader("Analysis Actions")
+        if st.button("Analyze Image (Initial)", key="analyze_btn", type="primary"):
+            st.session_state.last_action = "analyze"
+            st.rerun()
 
-        error_msg = f"Error: Unexpected Gemini response format. Response: {response_data}"
-        logger.error(error_msg)
-        return error_msg, False
+        st.markdown("---")
 
+        # --- 4. Follow-up Q&A ---
+        st.subheader("Follow-up Question")
+        question_input = st.text_area("Ask about image / highlighted region:", height=100, key="question_input")
+        if st.session_state.roi_coords:
+             if st.button("Clear Highlighted Region (ROI)", key="clear_roi"):
+                 st.session_state.roi_coords = None
+                 st.session_state.canvas_drawing = None
+                 st.rerun()
 
-    except requests.exceptions.Timeout:
-         error_msg = f"Error: Gemini API request timed out after {API_TIMEOUT} seconds."
-         logger.error(error_msg)
-         return error_msg, False
-    except requests.exceptions.RequestException as e:
-        # ... (Keep the detailed RequestException handling from previous version)
-        status_code = e.response.status_code if e.response is not None else "N/A"
-        logger.error(f"Gemini API request failed: {e} (Status Code: {status_code})", exc_info=True)
-        # ... detailed status code messages ...
-        return f"Error connecting to Gemini API: {e}", False
-    except Exception as e:
-        logger.error(f"Unexpected error processing Gemini response: {e}", exc_info=True)
-        return f"Error: Failed to process the response from Gemini ({e}).", False
+        if st.button("Ask Gemini", key="ask_btn"):
+             if st.session_state.question_input.strip():
+                 st.session_state.last_action = "ask"
+                 st.rerun()
+             else: st.warning("Please enter a question.")
 
+        st.markdown("---")
 
-# --- Functions for Specific Tasks ---
+        # --- 5. Disease Specific Check ---
+        st.subheader("Disease-Specific Check")
+        disease_options = ["", "Pneumonia", "Lung cancer", "Stroke", "Fracture", "Appendicitis", "Tuberculosis", "COVID-19 Findings", "Pulmonary embolism", "Glioblastoma", "Meningioma", "Arthritis", "Osteoporosis signs", "Cardiomegaly", "Aortic aneurysm", "Bowel obstruction signs"]
+        disease_select = st.selectbox("Select Condition Focus:", options=sorted(list(set(disease_options))), key="disease_select") # Sort and ensure unique
+        if st.button("Run Focused Analysis", key="disease_btn"):
+            if st.session_state.disease_select:
+                st.session_state.last_action = "disease"
+                st.rerun()
+            else: st.warning("Please select a condition.")
 
-def run_initial_analysis(image: Image.Image) -> str:
-    """Generates the initial analysis using Gemini."""
-    logger.info("Running initial analysis...")
-    # Add ROI info if available? Maybe not for initial general analysis.
-    roi_info = "Not specified." # Placeholder for initial analysis
-    prompt = INITIAL_ANALYSIS_PROMPT # Use the basic prompt
-    result_text, success = query_gemini_vision(image, prompt)
-    if success:
-        logger.info("Initial analysis successful.")
-        return result_text or "[Analysis OK, No Text Returned]"
+        st.markdown("---")
+
+        # --- 6. Confidence & Reporting ---
+        st.subheader("Confidence & Reporting")
+        if st.button("Estimate AI Confidence", key="confidence_btn"):
+             if st.session_state.history:
+                 st.session_state.last_action = "confidence"
+                 st.rerun()
+             else: st.warning("No analysis/Q&A yet.")
+
+        if st.button("Generate PDF Report Data", key="generate_report_data_btn"):
+            st.session_state.last_action = "generate_report_data"
+            st.rerun()
+
+        if st.session_state.pdf_report_bytes:
+            report_filename = f"medivision_report_{st.session_state.session_id}.pdf"
+            st.download_button("Download PDF Report", data=st.session_state.pdf_report_bytes, file_name=report_filename, mime="application/pdf")
+
     else:
-        logger.error(f"Initial analysis failed: {result_text}")
-        return f"Initial Analysis Failed:\n{result_text}"
+        st.info("Upload an image to enable controls.")
 
-def run_multimodal_qa(
-    image: Image.Image,
-    question: str,
-    history: List[Tuple[str, str]],
-    roi_coords: Optional[Dict] = None # Add ROI coordinates
-    ) -> Tuple[str, bool]:
-    """Handles QA, potentially using ROI and history."""
-    logger.info(f"Received question: {question}")
 
-    # Format ROI info for the prompt
-    if roi_coords:
-        roi_info = f"User has highlighted a region of interest with bounding box: Top-Left ({roi_coords['left']},{roi_coords['top']}), Bottom-Right ({roi_coords['left'] + roi_coords['width']},{roi_coords['top'] + roi_coords['height']}). Focus your answer on this region if relevant."
+# ==============================================================================
+# === MAIN PANEL DISPLAYS ======================================================
+# ==============================================================================
+col1, col2 = st.columns([2, 3]) # Image viewer slightly smaller
+
+with col1:
+    st.subheader("Image Viewer")
+    if st.session_state.display_image:
+        # --- Drawable Canvas for ROI ---
+        canvas_height = 450
+        # Calculate aspect ratio correctly
+        img_w = st.session_state.display_image.width
+        img_h = st.session_state.display_image.height
+        aspect = img_w / img_h
+        canvas_width = int(canvas_height * aspect)
+
+        # Ensure reasonable width
+        container_width = 600 # Estimate based on column split, adjust if needed
+        canvas_width = min(canvas_width, container_width)
+        canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
+
+        st.caption("Click and drag to highlight a Region of Interest (ROI) for questions.")
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, stroke_color="rgba(255, 165, 0, 0.8)",
+            background_image=st.session_state.display_image,
+            update_streamlit=True, # Let Streamlit handle updates
+            height=canvas_height, width=canvas_width,
+            drawing_mode="rect", key="canvas",
+        )
+
+        # Process canvas results
+        if canvas_result.json_data is not None and canvas_result.json_data.get("objects"):
+             last_rect = canvas_result.json_data["objects"][-1]
+             # Store coordinates relative to the canvas size
+             st.session_state.roi_coords = {
+                  "left": int(last_rect["left"]), "top": int(last_rect["top"]),
+                  "width": int(last_rect["width"] * last_rect.get("scaleX", 1)),
+                  "height": int(last_rect["height"] * last_rect.get("scaleY", 1))
+             }
+        # No 'else' needed here; if no objects, roi_coords remains as is (or None if cleared)
+
+        # --- Display DICOM Metadata (Conditional) ---
+        if st.session_state.is_dicom and st.session_state.dicom_metadata:
+             with st.expander("View DICOM Metadata"):
+                meta_cols = st.columns(2)
+                idx = 0
+                for key, value in st.session_state.dicom_metadata.items():
+                    display_val = str(value)
+                    if isinstance(value, list): display_val = ", ".join(map(str, value))
+                    elif isinstance(value, pydicom.uid.UID): display_val = value.name
+                    meta_cols[idx%2].markdown(f"**{key}:** `{display_val}`")
+                    idx+=1
+
     else:
-        roi_info = "No specific region highlighted by the user."
+        st.markdown("*Upload an image using the sidebar.*")
 
-    history_str = "\n---\n".join([f"User: {q}\nAI: {a}" for q, a in history[-MAX_HISTORY_LEN:]]) or "No previous questions."
-    prompt = QA_CONTEXT_PROMPT_TEMPLATE.format(history_text=history_str, question=question, roi_info=roi_info)
+with col2:
+    st.subheader("Analysis & Results")
+    tabs = st.tabs(["Initial Analysis", "Q&A", "Disease Focus", "Confidence"])
 
-    # Try Gemini first
-    gemini_result, gemini_success = query_gemini_vision(image, prompt)
+    with tabs[0]: st.text_area("Caption, Findings, Differentials", value=st.session_state.initial_analysis, height=350, key="output_initial", disabled=True)
+    with tabs[1]:
+        st.text_area("Answer", value=st.session_state.qa_answer, height=350, key="output_qa", disabled=True)
+        if st.session_state.history:
+            with st.expander("View Conversation History"):
+                for i, (q, a) in enumerate(reversed(st.session_state.history)):
+                    st.markdown(f"**Q{len(st.session_state.history)-i}:** {q}")
+                    # Use markdown for better rendering of potential formatting in answer
+                    st.markdown(f"**A{len(st.session_state.history)-i}:**")
+                    st.markdown(a, unsafe_allow_html=True) # Allow basic HTML like bold from fallback
+                    st.markdown("---")
+    with tabs[2]: st.text_area("Disease-Specific Findings", value=st.session_state.disease_analysis, height=350, key="output_disease", disabled=True)
+    with tabs[3]: st.text_area("AI Confidence Score & Justification", value=st.session_state.confidence_score, height=200, key="output_confidence", disabled=True)
 
-    if gemini_success:
-        logger.info("Gemini answered QA successfully.")
-        return gemini_result or "[QA OK, No Text Returned]", True
-    else:
-        # Return the error from Gemini
-        logger.warning(f"Gemini QA failed: {gemini_result}. No fallback configured in this module.")
-        return f"Gemini QA Failed:\n{gemini_result}", False
-        # Fallback logic would now be handled in the main app using hf_models.py
 
-def run_disease_analysis(
-    image: Image.Image,
-    disease: str,
-    roi_coords: Optional[Dict] = None
-    ) -> str:
-    """Runs disease-specific analysis."""
-    logger.info(f"Running disease analysis for: {disease}")
-    if roi_coords:
-        roi_info = f"User has highlighted a region of interest with bounding box: Top-Left ({roi_coords['left']},{roi_coords['top']}), Bottom-Right ({roi_coords['left'] + roi_coords['width']},{roi_coords['top'] + roi_coords['height']}). Focus analysis on this region if relevant."
-    else:
-        roi_info = "No specific region highlighted."
+# ==============================================================================
+# === ACTION HANDLING (EXECUTED ON RERUN AFTER BUTTON PRESS) ==================
+# ==============================================================================
+current_action = st.session_state.get("last_action")
 
-    prompt = DISEASE_SPECIFIC_PROMPT_TEMPLATE.format(disease=disease, roi_info=roi_info)
-    result_text, success = query_gemini_vision(image, prompt)
-    if success:
-        logger.info(f"Disease analysis for '{disease}' successful.")
-        return result_text or "[Analysis OK, No Text Returned]"
-    else:
-        logger.error(f"Disease analysis for '{disease}' failed: {result_text}")
-        return f"Disease Analysis Failed ({disease}):\n{result_text}"
+if current_action:
+    logger.info(f"Handling action: {current_action}")
+    if not st.session_state.processed_image or not st.session_state.session_id:
+        st.error("Action cannot be performed: No processed image or session.")
+        st.session_state.last_action = None
+        st.stop()
 
-def estimate_ai_confidence(
-    image: Image.Image,
-    history: List[Tuple[str, str]]
-    ) -> str:
-    """Estimates confidence based on the last interaction."""
-    if not history:
-        return "No history available to estimate confidence on."
-    logger.info("Requesting confidence estimation...")
-    last_q, last_a = history[-1]
-    prompt = CONFIDENCE_PROMPT_TEMPLATE.format(last_q=last_q, last_a=last_a)
-    result_text, success = query_gemini_vision(image, prompt) # Image context helps
-    if success:
-        logger.info("Confidence estimation successful.")
-        return result_text or "[Estimation OK, No Text Returned]"
-    else:
-        logger.error(f"Confidence estimation failed: {result_text}")
-        return f"Confidence Estimation Failed:\n{result_text}"
+    img_for_llm = st.session_state.processed_image # Use consistent base image for LLM
+    roi = st.session_state.roi_coords
+
+    # --- Initial Analysis ---
+    if current_action == "analyze":
+        with st.spinner("Performing initial analysis..."):
+            result = run_initial_analysis(img_for_llm)
+            st.session_state.initial_analysis = result
+    # --- Ask Question ---
+    elif current_action == "ask":
+        question = st.session_state.question_input.strip()
+        st.session_state.qa_answer = "" # Clear previous answer immediately
+        with st.spinner("Thinking... (Querying Gemini)"):
+            gemini_answer, success = run_multimodal_qa(img_for_llm, question, st.session_state.history, roi)
+
+        if success:
+            st.session_state.qa_answer = gemini_answer
+            st.session_state.history.append((question, gemini_answer))
+            st.session_state.question_input = ""
+        else:
+            st.session_state.qa_answer = f"Gemini Failed: {gemini_answer}"
+            st.error("Gemini query failed. Attempting Hugging Face VQA fallback...")
+            with st.spinner(f"Attempting HF Fallback ({HF_VQA_MODEL_ID})..."):
+                 hf_api_token_exists = os.environ.get("HF_API_TOKEN") is not None
+                 if hf_api_token_exists:
+                     hf_answer, hf_success = query_hf_vqa_inference_api(img_for_llm, question)
+                     if hf_success:
+                          fallback_display = f"**[Fallback Answer from Hugging Face VQA ({HF_VQA_MODEL_ID})]**\n\n{hf_answer}"
+                          st.session_state.qa_answer = fallback_display
+                          st.session_state.history.append((question, fallback_display))
+                          st.session_state.question_input = ""
+                          st.info("Hugging Face VQA fallback successful.")
+                     else:
+                          st.session_state.qa_answer += f"\n\n---\n**Hugging Face Fallback Failed:** {hf_answer}"
+                          st.error(f"Hugging Face VQA fallback also failed: {hf_answer}")
+                 else:
+                     st.warning("Hugging Face API token not configured. Cannot use VQA fallback.")
+                     st.session_state.qa_answer += "\n\n---\n**[Fallback Unavailable: HF Token Missing]**"
+
+    # --- Disease Analysis ---
+    elif current_action == "disease":
+        disease = st.session_state.disease_select
+        with st.spinner(f"Analyzing for {disease}..."):
+            result = run_disease_analysis(img_for_llm, disease, roi)
+            st.session_state.disease_analysis = result
+
+    # --- Confidence Estimation ---
+    elif current_action == "confidence":
+        with st.spinner("Estimating confidence..."):
+            result = estimate_ai_confidence(img_for_llm, st.session_state.history)
+            st.session_state.confidence_score = result
+
+    # --- PDF Report Generation ---
+    elif current_action == "generate_report_data":
+        st.session_state.pdf_report_bytes = None
+        with st.spinner("Generating PDF report..."):
+            img_for_report = st.session_state.display_image if st.session_state.display_image else st.session_state.processed_image
+            if img_for_report is None:
+                 st.error("Cannot generate report: No image available.")
+            else:
+                 full_qa_history = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in st.session_state.history]) or "No Q&A."
+                 outputs_for_report = {
+                     "Initial Analysis": st.session_state.initial_analysis or "N/A",
+                     "Conversation History": full_qa_history,
+                     "Disease-Specific Analysis": st.session_state.disease_analysis or "N/A",
+                     "Last Confidence Estimate": st.session_state.confidence_score or "N/A"
+                 }
+                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
+                      # Format metadata nicely for PDF
+                      meta_str_list = []
+                      for k,v in st.session_state.dicom_metadata.items():
+                           display_v = str(v)
+                           if isinstance(v, list): display_v = ", ".join(map(str,v))
+                           elif isinstance(v, pydicom.uid.UID): display_v = v.name
+                           meta_str_list.append(f"{k}: {display_v}")
+                      outputs_for_report["DICOM Metadata"] = "\n".join(meta_str_list)
+
+                 pdf_bytes = generate_pdf_report_bytes(
+                     st.session_state.session_id, img_for_report, outputs_for_report
+                 )
+                 if pdf_bytes:
+                     st.session_state.pdf_report_bytes = pdf_bytes
+                     st.success("PDF data generated. Download button available.")
+                 else: st.error("Failed to generate PDF report.")
+
+    # --- Reset Action and Rerun ---
+    st.session_state.last_action = None
+    st.rerun()
+
+
+# ==============================================================================
+# === FOOTER ===================================================================
+# ==============================================================================
+st.markdown("---")
+st.caption(f"Session ID: `{st.session_state.session_id if st.session_state.session_id else 'N/A'}`")
+hf_token_status = "Configured" if os.environ.get("HF_API_TOKEN") else "Not Configured"
+st.caption(f"Gemini API Key: {'Configured' if os.environ.get('GEMINI_API_KEY') else 'Not Configured'} | Hugging Face Token: {hf_token_status}")
