@@ -5,7 +5,7 @@ import uuid
 import io
 import os
 import logging
-# import base64 # No longer needed here if only used for canvas bg
+# import base64 # No longer needed for canvas background
 from streamlit_drawable_canvas import st_canvas # Import canvas
 from typing import Optional, Tuple, List, Dict, Any
 import pydicom # Import needed if using pydicom types directly here
@@ -264,6 +264,7 @@ with col1:
         # Constrain width to avoid excessive size, recalculate height
         container_width = 600 # Approximate width of col1, adjust as needed
         canvas_width = min(canvas_width, container_width)
+        # Recalculate height based on constrained width and aspect ratio
         canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
 
         st.caption("Click and drag to highlight a Region of Interest (ROI) for questions.")
@@ -271,7 +272,7 @@ with col1:
             fill_color="rgba(255, 165, 0, 0.3)", # Semi-transparent orange fill
             stroke_width=2,
             stroke_color="rgba(255, 165, 0, 0.8)", # Orange stroke
-            background_image=bg_image_pil, # <-- Pass PIL object directly
+            background_image=bg_image_pil, # <-- PASSING PIL OBJECT DIRECTLY
             update_streamlit=True, # Trigger Streamlit updates when drawing changes
             height=canvas_height,
             width=canvas_width,
