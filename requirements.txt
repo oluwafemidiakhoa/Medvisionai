@@ -1,0 +1,10 @@
+streamlit
+requests
+Pillow
+pydicom
+numpy
+fpdf
+streamlit-drawable-canvas
+transformers
+torch
+accelerate
