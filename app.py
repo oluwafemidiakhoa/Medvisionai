@@ -6,6 +6,8 @@ import os
 import logging
 from streamlit_drawable_canvas import st_canvas # Import canvas
 from typing import Optional, Tuple, List, Dict, Any
+from typing import Dict, Optional
+
 
 # Import functions from our modules
 from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
