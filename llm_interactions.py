@@ -4,7 +4,7 @@ import io
 import logging
 import streamlit as st
 from PIL import Image
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict # <-- Added Dict here
 
 logger = logging.getLogger(__name__)
 
