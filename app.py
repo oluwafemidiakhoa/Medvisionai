@@ -410,4 +410,5 @@ if current_action:
 # ==============================================================================
 st.markdown("---")
 st.caption(f"Session ID: `{st.session_state.session_id}`")
+
 # Add other footer info if needed
