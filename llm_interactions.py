@@ -10,7 +10,7 @@ from PIL import Image
 # Corrected import: Added Dict, List, Optional, Tuple were already needed
 from typing import Optional, Tuple, List, Dict
 
-# The circular 'from llm_interactions import ...' block has been removed from here.
+# Circular import was removed previously.
 
 logger = logging.getLogger(__name__)
 
@@ -28,23 +28,22 @@ def image_to_base64_str(image_bytes: bytes, format: str = "PNG") -> str:
 
 def get_gemini_api_url() -> Optional[str]:
     """Retrieves Gemini API URL from environment variables."""
-    # --- Use os.environ.get ---
     api_key = os.environ.get("GEMINI_API_KEY")
-    # --- End of Change ---
-
     if not api_key:
         logger.error("GEMINI_API_KEY environment variable not set.")
         st.error("Configuration Error: GEMINI_API_KEY is not set in the environment variables (or Space Secrets).")
         return None
 
-    # --- Specify the desired Gemini model here ---
-    model_name = "gemini-1.5-pro-latest" # Or "gemini-1.5-flash-latest" etc.
+    # --- Specify the desired Gemini model here ---  <<<<< CORRECTED MODEL NAME
+    # model_name = "gemini-1.5-pro-latest" # Generally available Pro model
+    model_name = "gemini-2.5-pro-exp-03-25" # Use the requested experimental model
     # -------------------------------------------
+
+    logger.info(f"Targeting Gemini Model: {model_name}") # Log the model being used
     return f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
 
 
 # --- Prompt Templates ---
-# These are now defined directly in this file
 INITIAL_ANALYSIS_PROMPT = """
 You are an expert AI assistant simulating a radiologist. Your task is to analyze the provided medical image.
 Based *only* on the visual information present in the image, provide the following:
@@ -97,7 +96,6 @@ If no signs related to {disease} are visible, state that clearly. Focus on the h
 """
 
 # --- Core Gemini Interaction ---
-# @st.cache_data # Caching complex API calls needs careful consideration
 def query_gemini_vision(
     image: Image.Image,
     text_prompt: str,
@@ -105,10 +103,10 @@ def query_gemini_vision(
     """Sends the image and text prompt to the configured Gemini API."""
     gemini_api_url = get_gemini_api_url()
     if not gemini_api_url:
-        # Error is already logged/displayed by get_gemini_api_url
         return "Error: Gemini API URL not configured.", False
 
-    logger.info(f"Querying Gemini API: {gemini_api_url.split('?')[0]}")
+    # Log the specific model endpoint being hit (without key)
+    logger.info(f"Querying Gemini API endpoint: {gemini_api_url.split('?')[0]}")
     try:
         buffered = io.BytesIO()
         image.save(buffered, format="PNG")
@@ -120,7 +118,8 @@ def query_gemini_vision(
 
     payload = {
         "contents": [{"parts": [{"text": text_prompt}, {"inline_data": {"mime_type": IMAGE_MIME_TYPE, "data": img_base64}}]}],
-        "generation_config": {"temperature": 0.3, "top_k": 32, "top_p": 0.9, "max_output_tokens": 8192, "stop_sequences": []}, # Max tokens for Pro
+        # Adjust generation config if needed for the experimental model
+        "generation_config": {"temperature": 0.3, "top_k": 32, "top_p": 0.9, "max_output_tokens": 8192, "stop_sequences": []},
         "safety_settings": [
             {"category": c, "threshold": "BLOCK_MEDIUM_AND_ABOVE"}
             for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]
@@ -134,7 +133,7 @@ def query_gemini_vision(
         response_data = response.json()
         logger.debug(f"Gemini Raw Response: {response_data}")
 
-        # Robust Response Parsing
+        # Robust Response Parsing (remains the same logic)
         if 'candidates' in response_data and len(response_data['candidates']) > 0:
             candidate = response_data['candidates'][0]
             if 'content' in candidate and 'parts' in candidate['content'] and len(candidate['content']['parts']) > 0:
@@ -192,7 +191,7 @@ def query_gemini_vision(
              try: error_detail = e.response.json().get('error', {}).get('message', e.response.text)
              except: error_detail = e.response.text
         logger.error(f"Gemini API request failed: {e} (Status Code: {status_code})", exc_info=True)
-        # Add detailed status code messages if needed
+        # Add more specific status code checks if needed
         return f"Error connecting to Gemini API ({status_code}): {error_detail or e}", False
     except Exception as e:
         logger.error(f"Unexpected error processing Gemini response: {e}", exc_info=True)
@@ -200,11 +199,11 @@ def query_gemini_vision(
 
 
 # --- Functions for Specific Tasks ---
+# These functions use the templates defined above and call query_gemini_vision
 
 def run_initial_analysis(image: Image.Image) -> str:
     """Generates the initial analysis using Gemini."""
     logger.info("Running initial analysis...")
-    # Use the constant defined above in this file
     prompt = INITIAL_ANALYSIS_PROMPT
     result_text, success = query_gemini_vision(image, prompt)
     if success:
@@ -216,7 +215,7 @@ def run_multimodal_qa(
     image: Image.Image,
     question: str,
     history: List[Tuple[str, str]],
-    roi_coords: Optional[Dict] = None # Dict is now defined
+    roi_coords: Optional[Dict] = None
     ) -> Tuple[str, bool]:
     """Handles QA, potentially using ROI and history."""
     logger.info(f"Received question: {question}")
@@ -224,7 +223,6 @@ def run_multimodal_qa(
     if roi_coords:
         roi_info = f"User highlighted region: Top-Left({roi_coords['left']},{roi_coords['top']}), Bottom-Right({roi_coords['left']+roi_coords['width']},{roi_coords['top']+roi_coords['height']}). Focus on this region if relevant."
     history_str = "\n---\n".join([f"User: {q}\nAI: {a}" for q, a in history[-MAX_HISTORY_LEN:]]) or "No previous questions."
-    # Use the constant defined above in this file
     prompt = QA_CONTEXT_PROMPT_TEMPLATE.format(history_text=history_str, question=question, roi_info=roi_info)
     gemini_result, gemini_success = query_gemini_vision(image, prompt)
     if gemini_success:
@@ -235,14 +233,13 @@ def run_multimodal_qa(
 def run_disease_analysis(
     image: Image.Image,
     disease: str,
-    roi_coords: Optional[Dict] = None # Dict is now defined
+    roi_coords: Optional[Dict] = None
     ) -> str:
     """Runs disease-specific analysis."""
     logger.info(f"Running disease analysis for: {disease}")
     roi_info = "No specific region highlighted."
     if roi_coords:
         roi_info = f"User highlighted region: Top-Left({roi_coords['left']},{roi_coords['top']}), Bottom-Right({roi_coords['left']+roi_coords['width']},{roi_coords['top']+roi_coords['height']}). Focus on this region if relevant."
-    # Use the constant defined above in this file
     prompt = DISEASE_SPECIFIC_PROMPT_TEMPLATE.format(disease=disease, roi_info=roi_info)
     result_text, success = query_gemini_vision(image, prompt)
     if success:
@@ -252,13 +249,12 @@ def run_disease_analysis(
 
 def estimate_ai_confidence(
     image: Image.Image,
-    history: List[Tuple[str, str]] # List and Tuple were already imported
+    history: List[Tuple[str, str]]
     ) -> str:
     """Estimates confidence based on the last interaction."""
     if not history: return "No history available."
     logger.info("Requesting confidence estimation...")
     last_q, last_a = history[-1]
-    # Use the constant defined above in this file
     prompt = CONFIDENCE_PROMPT_TEMPLATE.format(last_q=last_q, last_a=last_a)
     result_text, success = query_gemini_vision(image, prompt)
     if success:
