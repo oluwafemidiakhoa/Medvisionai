@@ -15,7 +15,7 @@ from streamlit_drawable_canvas import st_canvas
 # ------------------------------------------------------------------------------
 import streamlit.elements.image as st_image
 if not hasattr(st_image, "image_to_url"):
-    def image_to_url(img: Image.Image) -> str:
+    def image_to_url(img: Image.Image, *args, **kwargs) -> str:
         buffered = io.BytesIO()
         img.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
