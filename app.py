@@ -11,15 +11,16 @@ import pydicom
 from streamlit_drawable_canvas import st_canvas
 
 # ------------------------------------------------------------------------------
-# Monkey-Patch: Add st.image.image_to_url if missing (needed by st_canvas)
+# Monkey-Patch: Add image_to_url to streamlit.elements.image if missing
 # ------------------------------------------------------------------------------
-if not hasattr(st.image, "image_to_url"):
+import streamlit.elements.image as st_image
+if not hasattr(st_image, "image_to_url"):
     def image_to_url(img: Image.Image) -> str:
         buffered = io.BytesIO()
         img.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
         return f"data:image/png;base64,{img_str}"
-    st.image.image_to_url = image_to_url
+    st_image.image_to_url = image_to_url
 
 # ------------------------------------------------------------------------------
 # Import Custom Utilities
