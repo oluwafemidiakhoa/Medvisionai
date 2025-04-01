@@ -298,14 +298,12 @@ with col1:
         canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
 
         st.caption("Click and drag to highlight a Region of Interest (ROI) for questions.")
-        # Convert image to a data URL for the canvas background
-        background_image_url = image_to_data_url(bg_image_pil) if bg_image_pil else None
-
+        # Pass the PIL image directly to the canvas as the background image
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
             stroke_color="rgba(255, 165, 0, 0.8)",
-            background_image=background_image_url,
+            background_image=bg_image_pil,
             update_streamlit=True,
             height=canvas_height,
             width=canvas_width,
