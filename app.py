@@ -426,7 +426,10 @@ if current_action:
         if success:
             st.session_state.qa_answer = gemini_answer
             st.session_state.history.append((question, gemini_answer))
-            st.session_state.question_input = ""
+            # Instead of resetting st.session_state.question_input (which raises an error),
+            # we remove the key to let the widget reset on next rerun.
+            if "question_input" in st.session_state:
+                del st.session_state["question_input"]
         else:
             st.session_state.qa_answer = f"Gemini Failed: {gemini_answer}"
             st.error("Gemini query failed. Attempting Hugging Face VQA fallback...")
@@ -439,7 +442,8 @@ if current_action:
                         )
                         st.session_state.qa_answer = fallback_display
                         st.session_state.history.append((question, fallback_display))
-                        st.session_state.question_input = ""
+                        if "question_input" in st.session_state:
+                            del st.session_state["question_input"]
                         st.info("Hugging Face VQA fallback successful.")
                     else:
                         st.session_state.qa_answer += f"\n\n---\n**Hugging Face Fallback Failed:** {hf_answer}"
