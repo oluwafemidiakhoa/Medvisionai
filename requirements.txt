@@ -8,3 +8,4 @@ streamlit-drawable-canvas==0.9.3 # <-- Pin to this version
 transformers
 torch
 accelerate
+pillow base64
