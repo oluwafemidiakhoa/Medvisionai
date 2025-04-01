@@ -10,7 +10,20 @@ from PIL import Image, UnidentifiedImageError
 import pydicom
 from streamlit_drawable_canvas import st_canvas
 
-# Import custom utilities
+# ------------------------------------------------------------------------------
+# Monkey-Patch: Add st.image.image_to_url if missing (needed by st_canvas)
+# ------------------------------------------------------------------------------
+if not hasattr(st.image, "image_to_url"):
+    def image_to_url(img: Image.Image) -> str:
+        buffered = io.BytesIO()
+        img.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        return f"data:image/png;base64,{img_str}"
+    st.image.image_to_url = image_to_url
+
+# ------------------------------------------------------------------------------
+# Import Custom Utilities
+# ------------------------------------------------------------------------------
 from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
 from llm_interactions import (
     run_initial_analysis, run_multimodal_qa, run_disease_analysis,
@@ -29,7 +42,6 @@ def image_to_data_url(img: Image.Image) -> str:
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
     return f"data:image/png;base64,{img_str}"
-
 
 # --- Setup Logging ---
 logging.basicConfig(
@@ -298,7 +310,7 @@ with col1:
         canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
 
         st.caption("Click and drag to highlight a Region of Interest (ROI) for questions.")
-        # Pass the PIL image directly to the canvas as the background image
+        # Pass the PIL image directly as the canvas background
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
