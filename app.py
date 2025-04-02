@@ -1,4 +1,4 @@
-# main_app.py (Revision - Fix SyntaxError in Fallback Logic)
+# main_app.py (Revision - Removed Debug st.image Block)
 
 # --- Core Libraries ---
 import io
@@ -24,7 +24,7 @@ except ImportError:
 # <<< --- Configure Streamlit Page (MUST BE FIRST st COMMAND) --- >>>
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="RadVision AI Advanced", # Restored title
+    page_title="RadVision AI Advanced",
     layout="wide",
     page_icon="⚕️",
     initial_sidebar_state="expanded"
@@ -50,8 +50,7 @@ except ImportError:
 # ------------------------------------------------------------------------------
 # <<< --- Setup Logging (After set_page_config) --- >>>
 # ------------------------------------------------------------------------------
-# Set DEBUG for detailed diagnostics
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG").upper()
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper() # Default back to INFO
 logging.basicConfig(
     level=LOG_LEVEL,
     format='%(asctime)s - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s',
@@ -148,39 +147,8 @@ logger.debug("Session state initialized.")
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("⚠️ Important Disclaimer & Usage Guide", expanded=False):
-    st.warning(
-        """
-        **Disclaimer:** This tool uses AI for medical image analysis and is intended strictly
-        for **research, informational, and educational purposes ONLY.**
-
-        *   **NOT for Clinical Use:** Do NOT use this tool for primary diagnosis, treatment planning,
-            or any decisions impacting patient care. It is not a substitute for professional
-            medical evaluation by qualified healthcare providers.
-        *   **AI Limitations:** AI analysis may be inaccurate or incomplete. Results require
-            validation by experts. Image quality, artifacts, and atypical presentations can
-            significantly affect performance.
-        *   **Data Privacy:** While efforts are made to handle data appropriately within the session,
-            avoid uploading identifiable patient information unless explicitly permitted by your
-            institution's policies and necessary for your research purpose. DICOM metadata containing
-            Protected Health Information (PHI) should be anonymized *before* upload if possible.
-            The generated report attempts to filter common PHI tags, but this filtering is **not guaranteed**
-            to be exhaustive or compliant with all regulations (e.g., HIPAA, GDPR). Verify output.
-        *   **No Liability:** The creators and providers of this tool assume no liability for its use
-            or interpretation of its results. Use at your own risk.
-
-        **By using this tool, you acknowledge you have read, understood, and agree to these terms.**
-        """
-    )
-    st.info(
-        """
-        **Quick Guide:**
-        1.  **Upload:** Use the sidebar to upload a JPG, PNG, or DICOM file.
-        2.  **DICOM W/L:** If DICOM, adjust Window/Level sliders in the sidebar for optimal viewing.
-        3.  **Analyze:** Use sidebar buttons to run initial analysis, ask specific questions (optionally draw an ROI first), or analyze for specific conditions.
-        4.  **Review:** Results appear in the tabs on the right.
-        5.  **Report:** Generate and download a PDF summary (use with caution regarding PHI).
-        """
-    )
+    st.warning(""" **Disclaimer:** Research/Educational use ONLY. **NOT for Clinical Use.** """)
+    st.info(""" **Quick Guide:** 1. Upload... 2. DICOM W/L... 3. Analyze... 4. Review... 5. Report...""")
 st.markdown("---")
 
 # =============================================================================
@@ -195,7 +163,7 @@ with st.sidebar:
     st.header("Image Upload & Controls")
     uploaded_file = st.file_uploader( "Upload Image (JPG, PNG, DCM)", type=["jpg", "jpeg", "png", "dcm", "dicom"], key="file_uploader_widget", accept_multiple_files=False, help="Select standard image or DICOM file.")
 
-    # File Processing
+    # --- File Processing Logic ---
     if uploaded_file is not None:
         # Change Detection
         try:
@@ -327,7 +295,6 @@ with st.sidebar:
                 st.download_button(label="⬇️ Download PDF Report", data=st.session_state.pdf_report_bytes, file_name=fname, mime="application/pdf", key="download_pdf_button", use_container_width=True)
     else: st.info("👈 Upload image to begin.")
 
-
 # =============================================================================
 # === MAIN PANEL DISPLAYS =====================================================
 # =============================================================================
@@ -339,50 +306,40 @@ with col1:
     display_img_object = st.session_state.get("display_image")
     logger.debug(f"Main Panel: Checking display_image. Type: {type(display_img_object)}, Is PIL Image: {isinstance(display_img_object, Image.Image)}")
 
-    # DIAGNOSTIC: Try st.image FIRST
-    image_shown_by_st_image = False
-    if isinstance(display_img_object, Image.Image):
-        st.markdown("--- DEBUG: `st.image` Attempt ---")
-        try:
-            img_for_st_image = display_img_object.copy()
-            st.image(img_for_st_image, caption=f"Direct display via st.image (Mode: {img_for_st_image.mode})", use_column_width='auto')
-            logger.info(f"DEBUG: *** SUCCESS displaying image using st.image. Mode={img_for_st_image.mode}, Size={img_for_st_image.size} ***")
-            st.markdown("--- End DEBUG ---")
-            image_shown_by_st_image = True
-        except Exception as st_img_err:
-            st.error(f"DEBUG: Failed to display image using st.image: {st_img_err}")
-            logger.error(f"DEBUG: st.image rendering failed: {st_img_err}", exc_info=True)
-            st.markdown("--- End DEBUG ---")
+    # --- REMOVED DEBUG st.image BLOCK ---
 
-    # Canvas Logic
+    # --- Canvas Logic ---
     if isinstance(display_img_object, Image.Image):
-        if not image_shown_by_st_image: logger.warning("Proceeding to st_canvas even though st.image failed.")
-        else: logger.debug("st.image ok, proceeding to st_canvas.")
-
-        bg_image_pil = None # Prepare BG Image
+        logger.debug(f"Viewer: Proceeding to canvas setup. Mode: {display_img_object.mode}, Size: {display_img_object.size}")
+        bg_image_pil = None
         try:
-            if display_img_object.mode == 'RGB': bg_image_pil = display_img_object; logger.debug("Canvas Prep: Already RGB.")
-            else: logger.info(f"Canvas Prep: Converting {display_img_object.mode} to RGB."); bg_image_pil = display_img_object.convert('RGB'); logger.debug(f"Canvas Prep: Converted type {type(bg_image_pil)}, mode {getattr(bg_image_pil, 'mode', 'N/A')}")
+            if display_img_object.mode == 'RGB': bg_image_pil = display_img_object; logger.debug("Canvas Prep: Image already RGB.")
+            else: logger.info(f"Canvas Prep: Converting {display_img_object.mode} to RGB for canvas."); bg_image_pil = display_img_object.convert('RGB'); logger.debug(f"Canvas Prep: Converted type {type(bg_image_pil)}, mode {getattr(bg_image_pil, 'mode', 'N/A')}")
             if not isinstance(bg_image_pil, Image.Image): raise TypeError(f"Invalid type after RGB conversion: {type(bg_image_pil)}")
         except Exception as prep_err: st.error(f"Failed preparing image for canvas: {prep_err}"); logger.error(f"Canvas Prep error: {prep_err}", exc_info=True); bg_image_pil = None
 
         if isinstance(bg_image_pil, Image.Image):
-            # Calculate Dimensions
             MAX_W, MAX_H = 700, 600; img_w, img_h = bg_image_pil.size; aspect = img_w / img_h if img_h else 1
             c_w = min(img_w, MAX_W); c_h = int(c_w / aspect) if aspect else MAX_H
             if c_h > MAX_H: c_h = MAX_H; c_w = int(c_h * aspect)
-            c_w, c_h = max(int(c_w), 150), max(int(c_h), 150); logger.info(f"Canvas Prep: Size W={c_w}, H={c_h}")
+            c_w, c_h = max(int(c_w), 150), max(int(c_h), 150)
+            logger.info(f"Canvas Prep: Size W={c_w}, H={c_h}")
 
-            if c_w > 0 and c_h > 0: # Draw Canvas
-                st.caption("Draw ROI below.")
+            if c_w > 0 and c_h > 0:
+                st.caption("Click and drag on the image below to select ROI.")
                 try:
                     initial_drawing = st.session_state.canvas_drawing;
                     if initial_drawing and not isinstance(initial_drawing, dict): initial_drawing = None
                     logger.info(f"Rendering st_canvas. BG mode: {bg_image_pil.mode}. Initial drawing: {'Set' if initial_drawing else 'None'}")
                     if not isinstance(bg_image_pil, Image.Image): raise ValueError("BG image invalid before canvas call.")
-                    canvas_result = st_canvas(fill_color="rgba(255, 165, 0, 0.2)", stroke_width=2, stroke_color="rgba(220, 50, 50, 0.9)", background_image=bg_image_pil, update_streamlit=True, height=c_h, width=c_w, drawing_mode="rect", initial_drawing=initial_drawing, key="drawable_canvas")
+
+                    canvas_result = st_canvas(
+                        fill_color="rgba(255, 165, 0, 0.2)", stroke_width=2, stroke_color="rgba(220, 50, 50, 0.9)",
+                        background_image=bg_image_pil, update_streamlit=True, height=c_h, width=c_w,
+                        drawing_mode="rect", initial_drawing=initial_drawing, key="drawable_canvas",
+                    )
                     logger.info("st_canvas rendered (or attempted).")
-                    # ROI Processing
+
                     if canvas_result and canvas_result.json_data is not None:
                         st.session_state.canvas_drawing = canvas_result.json_data
                         if canvas_result.json_data.get("objects"):
@@ -395,16 +352,19 @@ with col1:
                                      new_roi = {"left":ol,"top":ot,"width":ow,"height":oh}
                                      if st.session_state.roi_coords != new_roi: st.session_state.roi_coords = new_roi; logger.info(f"ROI updated: {new_roi}"); st.rerun()
                         elif not canvas_result.json_data.get("objects") and st.session_state.roi_coords is not None: logger.info("Canvas cleared, removing ROI."); st.session_state.roi_coords = None
+
                 except Exception as canvas_error: st.error(f"Canvas error: {canvas_error}"); logger.error(f"st_canvas failed: {canvas_error}", exc_info=True); st.warning("Drawing may be unavailable. Check Browser Console (F12).")
             else: st.error("Invalid canvas dimensions."); logger.error(f"Invalid canvas dims: W={c_w}, H={c_h}")
         else: st.info("Image could not be prepared for canvas."); logger.error("Cannot display canvas: bg_image_pil invalid.")
-        # DICOM Metadata
+
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             if pydicom is None: st.warning("DICOM metadata available but `pydicom` missing.")
             else: logger.debug("Displaying DICOM metadata."); display_dicom_metadata(st.session_state.dicom_metadata)
+
     # Fallback Placeholder
-    elif not image_shown_by_st_image:
-        logger.debug("Viewer: No valid display_image for rendering (and st.image failed)."); st.markdown("---")
+    else:
+        logger.debug("Viewer: No valid display_image for rendering.")
+        st.markdown("---")
         if st.session_state.uploaded_file_info: st.warning("Image processing failed or resulted in invalid data.")
         else: st.info("Upload an image to start.")
         st.markdown("<div style='height: 400px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; text-align: center; color: #aaa; font-style: italic;'>Image Display Area<br/>(Upload Required or Processing Failed)</div>", unsafe_allow_html=True)
@@ -412,7 +372,6 @@ with col1:
 # --- Column 2: Analysis Results Tabs ---
 with col2:
     st.subheader("📊 Analysis & Results")
-    # [ Tabs logic as before ]
     tab_titles = ["🔬 Initial Analysis", "💬 Q&A History", "🩺 Disease Focus", "📈 Confidence"]
     tabs = st.tabs(tab_titles)
     with tabs[0]: st.text_area("Overall Findings", value=st.session_state.initial_analysis or "No initial analysis performed.", height=450, key="output_initial", disabled=True)
@@ -456,11 +415,9 @@ if current_action:
                     st.error(f"Gemini failed: {ans}"); logger.warning(f"Gemini failed: {ans}"); st.session_state.qa_answer = f"**[Gemini Error]** {ans}\n\n---\n"
                     hf_ok = (HF_VQA_MODEL_ID and HF_VQA_MODEL_ID != "hf_model_not_found" and 'query_hf_vqa_inference_api' in globals() and os.environ.get("HF_API_TOKEN"))
                     if hf_ok:
-                         # ***** CORRECTED LINE *****
-                         st.info(f"Trying fallback ({HF_VQA_MODEL_ID})...")
+                         st.info(f"Trying fallback ({HF_VQA_MODEL_ID})...") # Fallback st.info on its own line
                          with st.spinner("Fallback AI..."):
                               fb_ans, fb_ok = query_hf_vqa_inference_api(img_llm, q, roi)
-                         # ***** END CORRECTION *****
                          if fb_ok: fb_disp = f"**[Fallback ({HF_VQA_MODEL_ID})]**\n\n{fb_ans}"; st.session_state.qa_answer += fb_disp; st.session_state.history.append((f"[Fallback] {q}", fb_disp)); st.success("Fallback answered.")
                          else: fb_err = f"Fallback failed: {fb_ans}"; st.session_state.qa_answer += f"**[Fallback Failed]** {fb_err}"; st.error(fb_err); logger.error(f"HF fallback fail: {fb_ans}")
                     else: fb_msg = f"Fallback unavailable."; st.session_state.qa_answer += f"**[Fallback Unavailable]** {fb_msg}"; st.warning(fb_msg); logger.warning("HF fallback skip.")
