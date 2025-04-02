@@ -148,8 +148,39 @@ logger.debug("Session state initialized.")
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("⚠️ Important Disclaimer & Usage Guide", expanded=False):
-    st.warning(""" **Disclaimer:** Research/Educational use ONLY. **NOT for Clinical Use.** """)
-    st.info(""" **Quick Guide:** 1. Upload... 2. DICOM W/L... 3. Analyze... 4. Review... 5. Report...""")
+    st.warning(
+        """
+        **Disclaimer:** This tool uses AI for medical image analysis and is intended strictly
+        for **research, informational, and educational purposes ONLY.**
+
+        *   **NOT for Clinical Use:** Do NOT use this tool for primary diagnosis, treatment planning,
+            or any decisions impacting patient care. It is not a substitute for professional
+            medical evaluation by qualified healthcare providers.
+        *   **AI Limitations:** AI analysis may be inaccurate or incomplete. Results require
+            validation by experts. Image quality, artifacts, and atypical presentations can
+            significantly affect performance.
+        *   **Data Privacy:** While efforts are made to handle data appropriately within the session,
+            avoid uploading identifiable patient information unless explicitly permitted by your
+            institution's policies and necessary for your research purpose. DICOM metadata containing
+            Protected Health Information (PHI) should be anonymized *before* upload if possible.
+            The generated report attempts to filter common PHI tags, but this filtering is **not guaranteed**
+            to be exhaustive or compliant with all regulations (e.g., HIPAA, GDPR). Verify output.
+        *   **No Liability:** The creators and providers of this tool assume no liability for its use
+            or interpretation of its results. Use at your own risk.
+
+        **By using this tool, you acknowledge you have read, understood, and agree to these terms.**
+        """
+    )
+    st.info(
+        """
+        **Quick Guide:**
+        1.  **Upload:** Use the sidebar to upload a JPG, PNG, or DICOM file.
+        2.  **DICOM W/L:** If DICOM, adjust Window/Level sliders in the sidebar for optimal viewing.
+        3.  **Analyze:** Use sidebar buttons to run initial analysis, ask specific questions (optionally draw an ROI first), or analyze for specific conditions.
+        4.  **Review:** Results appear in the tabs on the right.
+        5.  **Report:** Generate and download a PDF summary (use with caution regarding PHI).
+        """
+    )
 st.markdown("---")
 
 # =============================================================================
