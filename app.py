@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 #    Using a more centered layout for a polished look
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="MediVision QA Advanced",
+    page_title="RadVision AI",
     layout="centered",
     page_icon="⚕️"
 )
