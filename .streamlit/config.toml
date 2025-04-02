@@ -1,6 +1,14 @@
+# .streamlit/config.toml
+
 [theme]
 base="dark"
 primaryColor="#4B9CD3"
-textColor="#FFFFFF"
 backgroundColor="#0E1117"
 secondaryBackgroundColor="#262730"
+textColor="#FFFFFF"
+
+[server]
+# Center the layout instead of using the full browser width:
+headless = true
+port = 8501
+enableCORS = false
