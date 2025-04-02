@@ -44,18 +44,6 @@ def image_to_data_url(img: Image.Image) -> str:
     return f"data:image/png;base64,{img_str}"
 
 # ------------------------------------------------------------------------------
-# Define a helper rerun function that works in Streamlit 1.44.0
-# ------------------------------------------------------------------------------
-def rerun():
-    try:
-        # Try to use experimental_rerun if available.
-        st.experimental_rerun()
-    except Exception:
-        # As a workaround, update query parameters to force a refresh.
-        st.experimental_set_query_params(dummy=str(uuid.uuid4()))
-        st.stop()
-
-# ------------------------------------------------------------------------------
 # 3) Setup Logging
 # ------------------------------------------------------------------------------
 logging.basicConfig(
@@ -65,7 +53,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------
-# 4) Configure Streamlit Page (centered layout)
+# 4) Configure Streamlit Page
+#    Using a centered layout for a polished look.
 # ------------------------------------------------------------------------------
 st.set_page_config(
     page_title="RadVision AI",
@@ -74,7 +63,21 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# 5) Display Logo in Sidebar (if available)
+# 5) Helper: Rerun Function
+#    Use st.experimental_rerun() if available; otherwise use st.set_query_params().
+# ------------------------------------------------------------------------------
+def rerun():
+    try:
+        st.experimental_rerun()
+    except Exception:
+        st.set_query_params(dummy=str(uuid.uuid4()))
+        st.stop()
+
+# Optionally, display the current Streamlit version for debugging (remove later)
+st.write("Streamlit version:", st.__version__)
+
+# ------------------------------------------------------------------------------
+# 6) Display Logo in Sidebar (if available)
 # ------------------------------------------------------------------------------
 with st.sidebar:
     try:
@@ -83,7 +86,7 @@ with st.sidebar:
         logger.error(f"Logo image not found: {e}")
 
 # ------------------------------------------------------------------------------
-# 6) Initialize Session State
+# 7) Initialize Session State
 # ------------------------------------------------------------------------------
 DEFAULT_STATE = {
     "uploaded_file_info": None,
@@ -114,7 +117,7 @@ for key, default_value in DEFAULT_STATE.items():
         st.session_state[key] = default_value
 
 # ------------------------------------------------------------------------------
-# 7) Page Title & Disclaimer (Inside an Expander for neatness)
+# 8) Page Title & Disclaimer (Inside an Expander for neatness)
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI")
 
@@ -169,7 +172,6 @@ with st.sidebar:
                         st.session_state.dicom_wc, st.session_state.dicom_ww = wc, ww
                         st.session_state.display_image = dicom_to_image(ds, wc, ww)
                         st.session_state.processed_image = dicom_to_image(ds, None, None)
-                        # Get pixel range for slider defaults
                         pixel_min, pixel_max = 0, 4095
                         try:
                             arr = ds.pixel_array
@@ -346,7 +348,6 @@ col1, col2 = st.columns([2, 3])
 with col1:
     st.subheader("Image Viewer")
     if st.session_state.display_image:
-        # Display the uploaded image as a preview using use_container_width
         st.image(st.session_state.display_image, caption="Uploaded Image", use_container_width=True)
         bg_image_pil = st.session_state.display_image
         canvas_height = 450
@@ -505,7 +506,6 @@ if current_action:
 
     elif current_action == "confidence":
         with st.spinner("Estimating confidence..."):
-            # Fixed confidence report in percentage style with detailed justification.
             st.session_state.confidence_score = (
                 "**Confidence:** 10/10\n\n"
                 "**Justification:** The image provided is a photograph of a physical chest X-ray film. A careful visual inspection confirms the complete absence of any superimposed highlights, annotations, circles, arrows, or other markings intended to draw attention to a specific region. The determination is based on the clear lack of these specific visual features."
