@@ -44,6 +44,15 @@ def image_to_data_url(img: Image.Image) -> str:
     return f"data:image/png;base64,{img_str}"
 
 # ------------------------------------------------------------------------------
+# Define a helper rerun function
+# ------------------------------------------------------------------------------
+def rerun():
+    try:
+        st.experimental_rerun()
+    except AttributeError:
+        st.warning("Rerun function not available. Please update Streamlit to a newer version.")
+
+# ------------------------------------------------------------------------------
 # 3) Setup Logging
 # ------------------------------------------------------------------------------
 logging.basicConfig(
@@ -187,7 +196,7 @@ with st.sidebar:
 
             if st.session_state.processed_image:
                 st.success("Image ready.")
-                st.experimental_rerun()
+                rerun()
             else:
                 st.error("Image processing failed.")
 
@@ -232,7 +241,7 @@ with st.sidebar:
                 st.session_state.slider_ww = new_ww
                 with st.spinner("Applying Window/Level..."):
                     st.session_state.display_image = dicom_to_image(ds, new_wc, new_ww)
-                st.experimental_rerun()
+                rerun()
 
             if st.button("Reset W/L", key="reset_wl"):
                 wc_reset, ww_reset = get_default_wl(ds)
@@ -249,7 +258,7 @@ with st.sidebar:
                     else (pixel_max - pixel_min) * 0.8 if pixel_max > pixel_min else 1024
                 )
                 st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
-                st.experimental_rerun()
+                rerun()
 
     st.markdown("---")
 
@@ -257,7 +266,7 @@ with st.sidebar:
     if st.session_state.processed_image:
         if st.button("Initial Analysis", key="analyze_btn"):
             st.session_state.last_action = "analyze"
-            st.experimental_rerun()
+            rerun()
 
         st.markdown("---")
 
@@ -270,12 +279,12 @@ with st.sidebar:
             if st.button("Clear ROI", key="clear_roi"):
                 st.session_state.roi_coords = None
                 st.session_state.canvas_drawing = None
-                st.experimental_rerun()
+                rerun()
 
         if st.button("Ask AI", key="ask_btn"):
             if st.session_state.question_input.strip():
                 st.session_state.last_action = "ask"
-                st.experimental_rerun()
+                rerun()
             else:
                 st.warning("Please enter a question.")
 
@@ -294,7 +303,7 @@ with st.sidebar:
         if st.button("Run Condition Analysis", key="disease_btn"):
             if st.session_state.disease_select:
                 st.session_state.last_action = "disease"
-                st.experimental_rerun()
+                rerun()
             else:
                 st.warning("Please select a condition.")
 
@@ -305,13 +314,13 @@ with st.sidebar:
             if st.button("Estimate AI Confidence", key="confidence_btn"):
                 if st.session_state.history:
                     st.session_state.last_action = "confidence"
-                    st.experimental_rerun()
+                    rerun()
                 else:
                     st.warning("No analysis/Q&A yet.")
 
             if st.button("Generate PDF Report Data", key="generate_report_data_btn"):
                 st.session_state.last_action = "generate_report_data"
-                st.experimental_rerun()
+                rerun()
 
             if st.session_state.get("pdf_report_bytes"):
                 report_filename = f"medivision_report_{st.session_state.session_id}.pdf"
@@ -325,6 +334,8 @@ with st.sidebar:
     else:
         st.info("Upload an image to enable further actions.")
 
+st.markdown("---")
+
 # =============================================================================
 # === MAIN PANEL DISPLAYS =====================================================
 # =============================================================================
@@ -335,8 +346,6 @@ with col1:
     if st.session_state.display_image:
         # Display the uploaded image as a preview using use_container_width
         st.image(st.session_state.display_image, caption="Uploaded Image", use_container_width=True)
-        
-        # Also launch the drawable canvas on the image
         bg_image_pil = st.session_state.display_image
         canvas_height = 450
         img_w, img_h = bg_image_pil.width, bg_image_pil.height
@@ -369,7 +378,7 @@ with col1:
                 "width": rect_width,
                 "height": rect_height,
             }
-        # Optionally, show DICOM metadata
+
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("View DICOM Metadata"):
                 meta_cols = st.columns(2)
@@ -434,7 +443,6 @@ with col2:
 # === ACTION HANDLING ===========================================================
 # =============================================================================
 current_action = st.session_state.get("last_action")
-
 if current_action:
     logger.info(f"Handling action: {current_action}")
     if not st.session_state.processed_image or not st.session_state.session_id:
@@ -495,7 +503,7 @@ if current_action:
 
     elif current_action == "confidence":
         with st.spinner("Estimating confidence..."):
-            # Set a fixed confidence report (in percentage style)
+            # Fixed confidence report in percentage style with detailed justification.
             st.session_state.confidence_score = (
                 "**Confidence:** 10/10\n\n"
                 "**Justification:** The image provided is a photograph of a physical chest X-ray film. A careful visual inspection confirms the complete absence of any superimposed highlights, annotations, circles, arrows, or other markings intended to draw attention to a specific region. The determination is based on the clear lack of these specific visual features."
@@ -542,7 +550,7 @@ if current_action:
                     st.error("Failed to generate PDF report data.")
 
     st.session_state.last_action = None
-    st.experimental_rerun()
+    rerun()
 
 # ------------------------------------------------------------------------------
 # 8) Footer Removed per earlier requests
