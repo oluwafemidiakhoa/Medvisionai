@@ -35,22 +35,11 @@ from report_utils import generate_pdf_report_bytes
 
 # --- Helper Functions ---
 def image_to_data_url(img: Image.Image) -> str:
-    """
-    Convert a PIL Image to a base64 encoded data URL (PNG format).
-    """
+    """Convert a PIL Image to a base64 encoded data URL (PNG format)."""
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
     return f"data:image/png;base64,{img_str}"
-
-# ------------------------------------------------------------------------------
-# Define a helper rerun function
-# ------------------------------------------------------------------------------
-def rerun():
-    try:
-        st.experimental_rerun()
-    except AttributeError:
-        st.warning("Rerun function not available. Please update Streamlit to a newer version.")
 
 # ------------------------------------------------------------------------------
 # 3) Setup Logging
@@ -72,7 +61,24 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# 5) Display Logo in Sidebar (if available)
+# 5) Helper: Rerun Function Based on Streamlit Version
+# ------------------------------------------------------------------------------
+def rerun():
+    # Convert the version string to a tuple of integers, e.g., "1.26.0" -> (1, 26, 0)
+    try:
+        ver = tuple(map(int, st.__version__.split(".")))
+    except Exception:
+        ver = (0, 0, 0)
+    if ver >= (1, 13):
+        st.experimental_rerun()
+    else:
+        st.warning("Rerun function not available. Please update Streamlit to a newer version.")
+
+# Optionally, print the current Streamlit version for debugging (remove later)
+st.write("Streamlit version:", st.__version__)
+
+# ------------------------------------------------------------------------------
+# 6) Display Logo in Sidebar (if available)
 # ------------------------------------------------------------------------------
 with st.sidebar:
     try:
@@ -81,7 +87,7 @@ with st.sidebar:
         logger.error(f"Logo image not found: {e}")
 
 # ------------------------------------------------------------------------------
-# 6) Initialize Session State
+# 7) Initialize Session State
 # ------------------------------------------------------------------------------
 DEFAULT_STATE = {
     "uploaded_file_info": None,
@@ -112,7 +118,7 @@ for key, default_value in DEFAULT_STATE.items():
         st.session_state[key] = default_value
 
 # ------------------------------------------------------------------------------
-# 7) Page Title & Disclaimer (Inside an Expander for neatness)
+# 8) Page Title & Disclaimer (Inside an Expander for neatness)
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI")
 
@@ -167,7 +173,6 @@ with st.sidebar:
                         st.session_state.dicom_wc, st.session_state.dicom_ww = wc, ww
                         st.session_state.display_image = dicom_to_image(ds, wc, ww)
                         st.session_state.processed_image = dicom_to_image(ds, None, None)
-                        # Get pixel range for slider defaults
                         pixel_min, pixel_max = 0, 4095
                         try:
                             arr = ds.pixel_array
@@ -344,7 +349,6 @@ col1, col2 = st.columns([2, 3])
 with col1:
     st.subheader("Image Viewer")
     if st.session_state.display_image:
-        # Display the uploaded image as a preview using use_container_width
         st.image(st.session_state.display_image, caption="Uploaded Image", use_container_width=True)
         bg_image_pil = st.session_state.display_image
         canvas_height = 450
