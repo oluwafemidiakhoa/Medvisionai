@@ -483,6 +483,9 @@ with col2:
     with tabs[2]: st.text_area("Disease-Specific Findings", value=st.session_state.disease_analysis or "No focused condition analysis performed yet.", height=400, key="output_disease", disabled=True, help="Analysis for selected condition.")
     with tabs[3]: st.text_area("AI Confidence Estimation", value=st.session_state.confidence_score or "No confidence estimation performed yet.", height=400, key="output_confidence", disabled=True, help="AI's estimated confidence.")
 
+# << All code from the previous version UP TO the ACTION HANDLING section >>
+# Imports, Setup, Sidebar, Main Panel col1 and col2 display logic remains the same...
+
 # =============================================================================
 # === ACTION HANDLING ===========================================================
 # =============================================================================
@@ -499,7 +502,7 @@ if current_action:
     roi_info_str = " (focused on ROI)" if roi else ""
 
     try:
-        # --- Action Logic (kept concise as before) ---
+        # --- Action Logic ---
         if current_action == "analyze":
             with st.spinner("Performing initial analysis..."): result = run_initial_analysis(img_for_llm)
             st.session_state.initial_analysis=result; st.session_state.qa_answer=""; st.session_state.disease_analysis=""; st.session_state.confidence_score=""
@@ -540,19 +543,37 @@ if current_action:
                         draw.rectangle([x0, y0, x1, y1], outline="red", width=3); img_with_roi_for_report = img_copy
                         logger.info("Drew ROI onto image for PDF report.")
                     except Exception as e: logger.error(f"Failed to draw ROI on report image: {e}", exc_info=True)
+
                 if isinstance(img_with_roi_for_report, Image.Image):
                     full_qa_history = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in st.session_state.history]) if st.session_state.history else "No Q&A history."
                     outputs_for_report = {"Initial Analysis": st.session_state.initial_analysis or "Not performed.", "Conversation History": full_qa_history, "Disease-Specific Analysis": st.session_state.disease_analysis or "Not performed.", "Last Confidence Estimate": st.session_state.confidence_score or "Not estimated."}
+
+                    # --- CORRECTED DICOM Metadata Formatting for PDF ---
                     if st.session_state.is_dicom and st.session_state.dicom_metadata:
                          meta_str_list = []
                          for k, v in st.session_state.dicom_metadata.items():
-                            display_v = ""
-                            if isinstance(v, list): display_v = ", ".join(map(str, v))
-                            elif isinstance(v, pydicom.uid.UID): display_v = f"{v.name} ({v})"
-                            elif isinstance(v, bytes): try: display_v = v.decode("utf-8", errors="replace").strip(); except Exception: display_v = f"[Binary Data ({len(v)} bytes)]"
-                            else: display_v = str(v).strip()
-                            if display_v: meta_str_list.append(f"{k}: {display_v}")
+                            display_v = "" # Initialize display_v
+                            if isinstance(v, list):
+                                display_v = ", ".join(map(str, v))
+                            elif isinstance(v, pydicom.uid.UID):
+                                display_v = f"{v.name} ({v})"
+                            elif isinstance(v, bytes):
+                                # CORRECTED: Put try/except on separate lines
+                                try:
+                                    display_v = v.decode("utf-8", errors="replace").strip()
+                                except Exception:
+                                    display_v = f"[Binary Data ({len(v)} bytes)]"
+                            else:
+                                display_v = str(v).strip()
+
+                            # Check if display_v has content before adding
+                            if display_v:
+                                meta_str_list.append(f"{k}: {display_v}")
+
+                         # Assign the formatted string or a default message
                          outputs_for_report["DICOM Metadata"] = "\n".join(meta_str_list) if meta_str_list else "No significant metadata found."
+                    # --- End of Corrected DICOM Metadata Formatting ---
+
                     pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_with_roi_for_report, outputs_for_report)
                     if pdf_bytes: st.session_state.pdf_report_bytes = pdf_bytes; st.success("PDF report data generated."); logger.info("PDF report data generation successful.")
                     else: st.error("Failed to generate PDF data."); logger.error("PDF report generation failed (returned None).")
