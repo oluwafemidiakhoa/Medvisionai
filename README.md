@@ -4,7 +4,7 @@ emoji: 👀
 colorFrom: blue
 colorTo: pink
 sdk: streamlit
-sdk_version: 1.44.0
+sdk_version: 1.44.1
 app_file: app.py
 pinned: false
 short_description: Medical Image diagnostic
