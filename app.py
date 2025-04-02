@@ -30,8 +30,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Add the new logo
-st.image("assets/new_logo.png", width=150)
+# Add the logo using the asset
+st.image("assets/radvisionai-hero.jpeg", width=150)
 
 # --- Image & DICOM Processing (Import early, check versions) ---
 try:
@@ -329,7 +329,6 @@ with st.sidebar:
                             logger.debug(f"Display image prepared. Mode: {temp_display_image.mode}")
 
                             # Prepare processed image (can keep original mode or convert as needed by AI)
-                            # Example: Keep original unless it's palette etc.
                             if img_copy_for_processing.mode in ['P', 'RGBA']:
                                 logger.info(f"Converting processed image from {img_copy_for_processing.mode} to RGB for AI.")
                                 temp_processed_image = img_copy_for_processing.convert("RGB")
@@ -350,16 +349,12 @@ with st.sidebar:
                             logger.error(f"Standard image processing error: {img_err}", exc_info=True)
 
                 except Exception as outer_proc_err:
-                    # Catch errors during file reading or type determination
                     st.error(f"Critical error during image processing setup: {outer_proc_err}")
                     logger.critical(f"Error in outer processing block: {outer_proc_err}", exc_info=True)
-                    processing_successful = False # Ensure failure state
+                    processing_successful = False
 
-
-                # --- Final Check and State Update ---
                 logger.debug(f"Final Check: processing_successful={processing_successful}, is display_image PIL={isinstance(temp_display_image, Image.Image)}, is processed_image PIL={isinstance(temp_processed_image, Image.Image)}")
                 if processing_successful and isinstance(temp_display_image, Image.Image) and isinstance(temp_processed_image, Image.Image):
-                    # Ensure display image is RGB (should be, but final check)
                     if temp_display_image.mode != 'RGB':
                         logger.warning(f"Final Check: Display image mode is {temp_display_image.mode}, forcing RGB conversion.")
                         try:
@@ -367,49 +362,37 @@ with st.sidebar:
                         except Exception as final_convert_err:
                              logger.error(f"Final RGB conversion for display image failed: {final_convert_err}", exc_info=True)
                              st.error("Failed final conversion to RGB for display.")
-                             # Mark as failure if conversion fails
-                             processing_successful = False # Override success
+                             processing_successful = False
                     else:
                         st.session_state.display_image = temp_display_image
 
-                    # Only proceed if display image is set
                     if processing_successful:
                         st.session_state.processed_image = temp_processed_image
                         logger.info(f"**SUCCESS**: State updated. Display Img: {st.session_state.display_image.mode} {st.session_state.display_image.size}, Processed Img: {st.session_state.processed_image.mode} {st.session_state.processed_image.size}")
-                        # Reset ROI/Canvas/Results for new image
                         st.session_state.roi_coords = None; st.session_state.canvas_drawing = None
                         st.session_state.initial_analysis = ""; st.session_state.qa_answer = ""; st.session_state.disease_analysis = ""; st.session_state.confidence_score = ""; st.session_state.pdf_report_bytes = None; st.session_state.history = []
                         logger.debug("Reset results state for new image.")
                         st.success(f"✅ Image '{uploaded_file.name}' processed!")
-                        st.rerun() # Trigger UI update with the new image state
+                        st.rerun()
                     else:
-                         # Handle case where final conversion failed
                          logger.error("Processing marked as failed during final checks (likely RGB conversion).")
                          st.error("Image processing failed during final conversion steps.")
-                         # Explicitly clear potentially partially set state
                          st.session_state.display_image = None
                          st.session_state.processed_image = None
 
-
-                else: # Processing failed earlier or final objects were invalid
+                else:
                     logger.critical("Image loading pipeline failed. Check previous logs for specific errors.")
-                    if processing_successful: # This implies the PIL check failed
+                    if processing_successful:
                         st.error("❌ Image processed, but final image objects are invalid. Check logs.")
                         logger.error(f"Final check failed: display type {type(temp_display_image)}, processed type {type(temp_processed_image)}")
-                    # else: # Error message likely already shown by specific try/except blocks
-                    #    st.error("❌ Image processing failed. Check logs for details.")
-
-                    # --- Cleanup State on Failure ---
                     logger.warning("Clearing potentially inconsistent state due to processing failure.")
-                    st.session_state.uploaded_file_info = None # Allow re-upload attempt
+                    st.session_state.uploaded_file_info = None
                     st.session_state.raw_image_bytes = None; st.session_state.display_image = None; st.session_state.processed_image = None; st.session_state.dicom_dataset = None; st.session_state.dicom_metadata = {}; st.session_state.current_display_wc = None; st.session_state.current_display_ww = None; st.session_state.is_dicom = False
 
             # End `with st.spinner`
         # End `if new_file_info != ...`
     # End `if uploaded_file is not None`
 
-
-    # --- DICOM W/L Controls ---
     st.markdown("---")
     if st.session_state.is_dicom and st.session_state.dicom_dataset and isinstance(st.session_state.get("display_image"), Image.Image):
         with st.expander("DICOM Window/Level", expanded=False):
@@ -444,12 +427,13 @@ with st.sidebar:
                               logger.debug("W/L applied, rerunning.")
                               st.rerun()
                          else:
-                              st.error("Failed to apply W/L settings (image generation failed)."); logger.error("dicom_to_image returned None/invalid for W/L update.")
-            except Exception as e: st.error(f"W/L control error: {e}"); logger.error(f"W/L slider/update error: {e}", exc_info=True)
+                              st.error("Failed to apply W/L settings (image generation failed).")
+                              logger.error("dicom_to_image returned None/invalid for W/L update.")
+            except Exception as e: 
+                st.error(f"W/L control error: {e}")
+                logger.error(f"W/L slider/update error: {e}", exc_info=True)
         st.markdown("---")
 
-
-    # --- AI Actions ---
     if isinstance(st.session_state.get("display_image"), Image.Image):
         st.subheader("AI Actions")
         if st.button("▶️ Run Initial Analysis", key="analyze_btn", help="Perform a general analysis of the image.", use_container_width=True):
@@ -469,7 +453,8 @@ with st.sidebar:
             user_question = st.session_state.question_input_widget
             if user_question and user_question.strip():
                 st.session_state.last_action = "ask"; logger.info(f"Ask AI clicked: '{user_question[:50]}...'"); st.rerun()
-            else: st.warning("Enter question."); logger.warning("Ask AI clicked with empty question.")
+            else:
+                st.warning("Enter question."); logger.warning("Ask AI clicked with empty question.")
         st.markdown("---")
         st.subheader("🎯 Focused Condition Analysis")
         DISEASE_OPTIONS = ["Pneumonia", "Lung Cancer", "Stroke", "Fracture", "Appendicitis", "Tuberculosis", "COVID-19", "Pulmonary Embolism", "Brain Tumor", "Arthritis", "Osteoporosis", "Cardiomegaly", "Aortic Aneurysm", "Bowel Obstruction", "Mass/Nodule", "Effusion"]
@@ -477,8 +462,10 @@ with st.sidebar:
         disease_select = st.selectbox("Condition to analyze:", options=disease_options_sorted, key="disease_select_widget", help="Select condition.")
         if st.button("🩺 Run Condition Analysis", key="disease_btn", use_container_width=True):
             selected_disease = st.session_state.disease_select_widget
-            if selected_disease: st.session_state.last_action = "disease"; logger.info(f"Condition Analysis clicked: '{selected_disease}'"); st.rerun()
-            else: st.warning("Select condition."); logger.warning("Condition Analysis clicked empty.")
+            if selected_disease:
+                st.session_state.last_action = "disease"; logger.info(f"Condition Analysis clicked: '{selected_disease}'"); st.rerun()
+            else:
+                st.warning("Select condition."); logger.warning("Condition Analysis clicked empty.")
         st.markdown("---")
         with st.expander("📊 Confidence & Report", expanded=True):
             can_estimate = bool(st.session_state.history or st.session_state.initial_analysis or st.session_state.disease_analysis)
@@ -758,8 +745,6 @@ if current_action:
                 roi_coords = st.session_state.get("roi_coords")
                 if roi_coords:
                     logger.info("Report: ROI detected, add drawing logic if needed.")
-                    # (Optional rectangle drawing on a copy of the display image)
-
                 qa_hist = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in history]) if history else "No Q&A."
                 outputs = {
                     "Session ID": session_id,
@@ -771,7 +756,6 @@ if current_action:
                 if st.session_state.get("is_dicom") and st.session_state.get("dicom_metadata"):
                     logger.info("Report: Including filtered DICOM metadata.")
                     outputs["DICOM Metadata (Filtered)"] = "DICOM Metadata Placeholder - Add filtering logic"
-
                 with st.spinner("🎨 Generating PDF..."):
                     pdf_bytes = generate_pdf_report_bytes(session_id, img_with_roi, outputs)
                 if pdf_bytes:
