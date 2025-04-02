@@ -243,7 +243,7 @@ with st.sidebar:
                 st.session_state.canvas_drawing = None
                 st.rerun()
 
-        if st.button("Ask Gemini", key="ask_btn"):
+        if st.button("Ask AI", key="ask_btn"):
             if st.session_state.question_input.strip():
                 st.session_state.last_action = "ask"
                 st.rerun()
