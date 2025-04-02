@@ -85,16 +85,7 @@ for key, default_value in DEFAULT_STATE.items():
 
 # --- App Header & Disclaimer ---
 st.title("⚕️ MediVision QA Advanced: AI Image Analysis")
-try:
-    gemini_url = get_gemini_api_url()
-    if gemini_url:
-        model_name = gemini_url.split('/')[-1].split(':')[0]
-        st.caption(f"Using Gemini Model: `{model_name}` | HF Fallback: `{HF_VQA_MODEL_ID}`")
-    else:
-        st.caption(f"Gemini Model: Not Configured | HF Fallback: `{HF_VQA_MODEL_ID}`")
-except Exception:
-    st.caption("Error reading model config.")
-
+# Removed Gemini/HF fallback caption from header.
 st.markdown("---")
 st.warning(
     """
@@ -219,7 +210,7 @@ with st.sidebar:
                 st.session_state.slider_wc = wc_reset if wc_reset is not None else (px_max + px_min) / 2
                 st.session_state.slider_ww = (
                     ww_reset if (ww_reset is not None and ww_reset > 0)
-                    else (px_max - px_min) * 0.8 if px_max > px_min else 1024
+                    else (px_max - px_min) * 0.8 if px_max > pixel_min else 1024
                 )
                 st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
                 st.rerun()
@@ -243,6 +234,7 @@ with st.sidebar:
                 st.session_state.canvas_drawing = None
                 st.rerun()
 
+        # Renamed button to "Ask AI"
         if st.button("Ask AI", key="ask_btn"):
             if st.session_state.question_input.strip():
                 st.session_state.last_action = "ask"
@@ -426,8 +418,7 @@ if current_action:
         if success:
             st.session_state.qa_answer = gemini_answer
             st.session_state.history.append((question, gemini_answer))
-            # Instead of resetting st.session_state.question_input (which raises an error),
-            # we remove the key to let the widget reset on next rerun.
+            # Remove the key to let the widget reset on next rerun.
             if "question_input" in st.session_state:
                 del st.session_state["question_input"]
         else:
@@ -463,7 +454,12 @@ if current_action:
     elif current_action == "confidence":
         with st.spinner("Estimating confidence..."):
             result = estimate_ai_confidence(img_for_llm, st.session_state.history)
-            st.session_state.confidence_score = result
+            # Convert result to percentage if possible
+            try:
+                confidence_float = float(result)
+                st.session_state.confidence_score = f"{confidence_float * 100:.2f}%"
+            except Exception:
+                st.session_state.confidence_score = result
 
     elif current_action == "generate_report_data":
         st.session_state.pdf_report_bytes = None
@@ -511,8 +507,4 @@ if current_action:
 # =============================================================================
 # === FOOTER ==================================================================
 # =============================================================================
-st.markdown("---")
-st.caption(f"Session ID: `{st.session_state.session_id if st.session_state.session_id else 'N/A'}`")
-hf_token_status = "Configured" if os.environ.get("HF_API_TOKEN") else "Not Configured"
-gemini_key_status = "Configured" if os.environ.get("GEMINI_API_KEY") else "Not Configured"
-st.caption(f"Gemini API Key: {gemini_key_status} | Hugging Face Token: {hf_token_status}")
+# Removed footer information regarding Session ID and API key statuses.
