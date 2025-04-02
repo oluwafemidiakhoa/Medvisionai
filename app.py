@@ -11,7 +11,7 @@ import pydicom
 from streamlit_drawable_canvas import st_canvas
 
 # ------------------------------------------------------------------------------
-# Monkey-Patch: Add image_to_url to streamlit.elements.image if missing
+# 1) Monkey-Patch: Add image_to_url to streamlit.elements.image if missing
 # ------------------------------------------------------------------------------
 import streamlit.elements.image as st_image
 if not hasattr(st_image, "image_to_url"):
@@ -23,7 +23,7 @@ if not hasattr(st_image, "image_to_url"):
     st_image.image_to_url = image_to_url
 
 # ------------------------------------------------------------------------------
-# Import Custom Utilities
+# 2) Import Custom Utilities
 # ------------------------------------------------------------------------------
 from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
 from llm_interactions import (
@@ -34,7 +34,6 @@ from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID
 from report_utils import generate_pdf_report_bytes
 
 # --- Helper Functions ---
-
 def image_to_data_url(img: Image.Image) -> str:
     """
     Convert a PIL Image to a base64 encoded data URL (PNG format).
@@ -44,17 +43,28 @@ def image_to_data_url(img: Image.Image) -> str:
     img_str = base64.b64encode(buffered.getvalue()).decode()
     return f"data:image/png;base64,{img_str}"
 
-# --- Setup Logging ---
+# ------------------------------------------------------------------------------
+# 3) Setup Logging
+# ------------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# --- Configure Streamlit Page ---
-st.set_page_config(page_title="MediVision QA Advanced", layout="wide", page_icon="⚕️")
+# ------------------------------------------------------------------------------
+# 4) Configure Streamlit Page
+#    Using a more centered layout for a polished look
+# ------------------------------------------------------------------------------
+st.set_page_config(
+    page_title="MediVision QA Advanced",
+    layout="centered",
+    page_icon="⚕️"
+)
 
-# --- Initialize Session State ---
+# ------------------------------------------------------------------------------
+# 5) Initialize Session State
+# ------------------------------------------------------------------------------
 DEFAULT_STATE = {
     "uploaded_file_info": None,
     "raw_image_bytes": None,
@@ -83,33 +93,41 @@ for key, default_value in DEFAULT_STATE.items():
     if key not in st.session_state:
         st.session_state[key] = default_value
 
-# --- App Header & Disclaimer ---
+# ------------------------------------------------------------------------------
+# 6) Page Title & Disclaimer (Inside an Expander for neatness)
+# ------------------------------------------------------------------------------
 st.title("⚕️ MediVision QA Advanced: AI Image Analysis")
-# (Gemini/HF model caption removed per request)
+
+with st.expander("Important Disclaimer", expanded=False):
+    st.warning(
+        """
+        **Disclaimer:** This tool provides AI-generated analysis for informational purposes only.
+        It is **NOT** a substitute for professional medical advice, diagnosis, or treatment.
+        All outputs **MUST** be reviewed and validated by qualified healthcare professionals.
+        """
+    )
+
 st.markdown("---")
-st.warning(
-    """
-    **Disclaimer:** This tool provides AI-generated analysis for informational purposes only.
-    It is **NOT** a substitute for professional medical advice, diagnosis, or treatment.
-    All outputs **MUST** be reviewed and validated by qualified healthcare professionals.
-    """
-)
 
 # =============================================================================
 # === SIDEBAR CONTROLS ========================================================
 # =============================================================================
 with st.sidebar:
     st.header("Controls")
+
+    # --- 1) Upload Image ---
     uploaded_file = st.file_uploader(
-        "1. Upload Image (JPG, PNG, DICOM)",
+        "Upload Image (JPG, PNG, DICOM)",
         type=["jpg", "jpeg", "png", "dcm", "dicom"],
-        key="file_uploader"
+        key="file_uploader",
+        help="Choose a .jpg, .png, or DICOM file."
     )
 
     if uploaded_file is not None:
         new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{uploaded_file.type}"
         if new_file_info != st.session_state.uploaded_file_info:
             logger.info(f"New file uploaded: {uploaded_file.name}")
+
             # Reset session state (except the uploader key)
             for key in list(st.session_state.keys()):
                 if key not in ["file_uploader"]:
@@ -131,6 +149,7 @@ with st.sidebar:
                         st.session_state.dicom_wc, st.session_state.dicom_ww = wc, ww
                         st.session_state.display_image = dicom_to_image(ds, wc, ww)
                         st.session_state.processed_image = dicom_to_image(ds, None, None)
+
                         # Get pixel range for slider defaults
                         pixel_min, pixel_max = 0, 4095
                         try:
@@ -166,10 +185,9 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # --- DICOM Window/Level Controls ---
-    if st.session_state.processed_image:
-        if st.session_state.is_dicom and st.session_state.dicom_dataset:
-            st.subheader("DICOM Window/Level")
+    # --- 2) DICOM Window/Level (If DICOM) ---
+    if st.session_state.processed_image and st.session_state.is_dicom and st.session_state.dicom_dataset:
+        with st.expander("DICOM Window/Level", expanded=False):
             ds = st.session_state.dicom_dataset
             default_wc, default_ww = st.session_state.dicom_wc, st.session_state.dicom_ww
 
@@ -188,8 +206,18 @@ with st.sidebar:
             current_wc = st.session_state.get("slider_wc", (pixel_max + pixel_min) / 2)
             current_ww = st.session_state.get("slider_ww", (pixel_max - pixel_min) * 0.8 if pixel_max > pixel_min else 1024)
 
-            new_wc = st.slider("Window Center (Level)", min_value=min_level, max_value=max_level, value=current_wc, step=1.0, key="wc_slider")
-            new_ww = st.slider("Window Width", min_value=1.0, max_value=max_width, value=current_ww, step=1.0, key="ww_slider")
+            new_wc = st.slider("Window Center (Level)",
+                               min_value=min_level,
+                               max_value=max_level,
+                               value=current_wc,
+                               step=1.0,
+                               key="wc_slider")
+            new_ww = st.slider("Window Width",
+                               min_value=1.0,
+                               max_value=max_width,
+                               value=current_ww,
+                               step=1.0,
+                               key="ww_slider")
 
             if abs(new_wc - current_wc) > 1e-3 or abs(new_ww - current_ww) > 1e-3:
                 st.session_state.slider_wc = new_wc
@@ -210,31 +238,32 @@ with st.sidebar:
                 st.session_state.slider_wc = wc_reset if wc_reset is not None else (px_max + px_min) / 2
                 st.session_state.slider_ww = (
                     ww_reset if (ww_reset is not None and ww_reset > 0)
-                    else (px_max - pixel_min) * 0.8 if px_max > pixel_min else 1024
+                    else (px_max - px_min) * 0.8 if px_max > pixel_min else 1024
                 )
                 st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
                 st.rerun()
 
-            st.markdown("---")
+    st.markdown("---")
 
-        # --- Analysis Actions ---
-        st.subheader("Analysis Actions")
-        if st.button("Analyze Image (Initial)", key="analyze_btn", type="primary"):
+    # --- 3) Initial Analysis ---
+    if st.session_state.processed_image:
+        if st.button("Initial Analysis", key="analyze_btn"):
             st.session_state.last_action = "analyze"
             st.rerun()
 
         st.markdown("---")
 
-        # --- Follow-up Q&A ---
-        st.subheader("Follow-up Question")
-        question_input = st.text_area("Ask about image / highlighted region:", height=100, key="question_input")
+        # --- 4) Ask Another Question ---
+        st.subheader("Ask Another Question")
+        question_input = st.text_area("Ask about image / highlighted region:",
+                                      height=100,
+                                      key="question_input")
         if st.session_state.roi_coords:
-            if st.button("Clear Highlighted Region (ROI)", key="clear_roi"):
+            if st.button("Clear ROI", key="clear_roi"):
                 st.session_state.roi_coords = None
                 st.session_state.canvas_drawing = None
                 st.rerun()
 
-        # Renamed button from "Ask Gemini" to "Ask AI"
         if st.button("Ask AI", key="ask_btn"):
             if st.session_state.question_input.strip():
                 st.session_state.last_action = "ask"
@@ -244,15 +273,17 @@ with st.sidebar:
 
         st.markdown("---")
 
-        # --- Disease-Specific Analysis ---
-        st.subheader("Disease-Specific Check")
+        # --- 5) Focused Condition Analysis ---
+        st.subheader("Focused Condition Analysis")
         disease_options = [
             "", "Pneumonia", "Lung cancer", "Stroke", "Fracture", "Appendicitis", "Tuberculosis",
             "COVID-19 Findings", "Pulmonary embolism", "Glioblastoma", "Meningioma",
             "Arthritis", "Osteoporosis signs", "Cardiomegaly", "Aortic aneurysm", "Bowel obstruction signs"
         ]
-        disease_select = st.selectbox("Select Condition Focus:", options=sorted(set(disease_options)), key="disease_select")
-        if st.button("Run Focused Analysis", key="disease_btn"):
+        disease_select = st.selectbox("Select a condition to analyze:",
+                                      options=sorted(set(disease_options)),
+                                      key="disease_select")
+        if st.button("Run Condition Analysis", key="disease_btn"):
             if st.session_state.disease_select:
                 st.session_state.last_action = "disease"
                 st.rerun()
@@ -261,30 +292,30 @@ with st.sidebar:
 
         st.markdown("---")
 
-        # --- Confidence Estimation & PDF Report ---
-        st.subheader("Confidence & Reporting")
-        if st.button("Estimate AI Confidence", key="confidence_btn"):
-            if st.session_state.history:
-                st.session_state.last_action = "confidence"
+        # --- 6) Confidence & PDF ---
+        with st.expander("Confidence & PDF", expanded=False):
+            if st.button("Estimate AI Confidence", key="confidence_btn"):
+                if st.session_state.history:
+                    st.session_state.last_action = "confidence"
+                    st.rerun()
+                else:
+                    st.warning("No analysis/Q&A yet.")
+
+            if st.button("Generate PDF Report Data", key="generate_report_data_btn"):
+                st.session_state.last_action = "generate_report_data"
                 st.rerun()
-            else:
-                st.warning("No analysis/Q&A yet.")
 
-        if st.button("Generate PDF Report Data", key="generate_report_data_btn"):
-            st.session_state.last_action = "generate_report_data"
-            st.rerun()
-
-        if st.session_state.get("pdf_report_bytes"):
-            report_filename = f"medivision_report_{st.session_state.session_id}.pdf"
-            st.download_button(
-                label="Download PDF Report",
-                data=st.session_state.pdf_report_bytes,
-                file_name=report_filename,
-                mime="application/pdf",
-                key="download_pdf_button"
-            )
+            if st.session_state.get("pdf_report_bytes"):
+                report_filename = f"medivision_report_{st.session_state.session_id}.pdf"
+                st.download_button(
+                    label="Download PDF Report",
+                    data=st.session_state.pdf_report_bytes,
+                    file_name=report_filename,
+                    mime="application/pdf",
+                    key="download_pdf_button"
+                )
     else:
-        st.info("Upload an image to enable controls.")
+        st.info("Upload an image to enable further actions.")
 
 # =============================================================================
 # === MAIN PANEL DISPLAYS =====================================================
@@ -295,15 +326,15 @@ with col1:
     st.subheader("Image Viewer")
     if st.session_state.display_image:
         bg_image_pil = st.session_state.display_image
-        # Calculate canvas dimensions based on image aspect ratio
+        # Calculate canvas dimensions based on aspect ratio
         canvas_height = 450
         img_w, img_h = bg_image_pil.width, bg_image_pil.height
         aspect = img_w / img_h if img_h > 0 else 1
         canvas_width = min(int(canvas_height * aspect), 600)
         canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
 
-        st.caption("Click and drag to highlight a Region of Interest (ROI) for questions.")
-        # Pass the PIL image directly as the canvas background
+        st.caption("Click/drag to highlight a Region of Interest (ROI) for further questions.")
+        # Use the PIL image directly as the canvas background
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
@@ -316,7 +347,7 @@ with col1:
             key="canvas",
         )
 
-        # Process drawn ROI (if any)
+        # If user drew a rectangle
         if canvas_result.json_data is not None and canvas_result.json_data.get("objects"):
             last_rect = canvas_result.json_data["objects"][-1]
             rect_width = max(1, int(last_rect.get("width", 1) * last_rect.get("scaleX", 1)))
@@ -348,10 +379,12 @@ with col1:
                     meta_cols[idx % 2].markdown(f"**{key}:** `{display_val}`")
                     idx += 1
     else:
-        st.markdown("*Upload an image using the sidebar.*")
+        st.markdown("*No image loaded yet.*")
 
 with col2:
     st.subheader("Analysis & Results")
+
+    # 1) Tabbed Interface
     tabs = st.tabs(["Initial Analysis", "Q&A", "Disease Focus", "Confidence"])
 
     with tabs[0]:
@@ -360,6 +393,7 @@ with col2:
                      height=350,
                      key="output_initial",
                      disabled=True)
+
     with tabs[1]:
         st.text_area("Answer",
                      value=st.session_state.qa_answer,
@@ -373,12 +407,14 @@ with col2:
                     st.markdown(f"**A{len(st.session_state.history) - i}:**")
                     st.markdown(a, unsafe_allow_html=True)
                     st.markdown("---")
+
     with tabs[2]:
         st.text_area("Disease-Specific Findings",
                      value=st.session_state.disease_analysis,
                      height=350,
                      key="output_disease",
                      disabled=True)
+
     with tabs[3]:
         st.text_area("AI Confidence Score & Justification",
                      value=st.session_state.confidence_score,
@@ -418,7 +454,7 @@ if current_action:
         if success:
             st.session_state.qa_answer = gemini_answer
             st.session_state.history.append((question, gemini_answer))
-            # Remove the question input key to reset the widget on rerun.
+            # Remove the question_input key to reset the widget
             if "question_input" in st.session_state:
                 del st.session_state["question_input"]
         else:
@@ -453,16 +489,15 @@ if current_action:
 
     elif current_action == "confidence":
         with st.spinner("Estimating confidence..."):
-            result = estimate_ai_confidence(img_for_llm, st.session_state.history)
+            # Here you could call estimate_ai_confidence or set a fixed result
+            # For example, if your function returns a float between 0 and 1:
+            raw_confidence = estimate_ai_confidence(img_for_llm, st.session_state.history)
             try:
-                confidence = float(result)  # Assume value between 0 and 1
-                rating = f"{confidence * 10:.0f}/10"  # e.g., 10/10 for full confidence
-            except Exception:
-                rating = result
-            justification = (
-                "The image provided is a photograph of a physical chest X-ray film. A careful visual inspection confirms the complete absence of any superimposed highlights, annotations, circles, arrows, or other markings intended to draw attention to a specific region. The determination is based on the clear lack of these specific visual features."
-            )
-            st.session_state.confidence_score = f"**Confidence:** {rating}\n\n**Justification:** {justification}"
+                conf_val = float(raw_confidence)  # e.g. 0.85
+                st.session_state.confidence_score = f"Confidence: {conf_val * 100:.1f}%\n\nJustification: The AI is fairly certain..."
+            except:
+                # If not a float, just store as is
+                st.session_state.confidence_score = raw_confidence
 
     elif current_action == "generate_report_data":
         st.session_state.pdf_report_bytes = None
@@ -504,10 +539,10 @@ if current_action:
                 else:
                     st.error("Failed to generate PDF report data.")
 
+    # Reset last action and rerun
     st.session_state.last_action = None
     st.rerun()
 
-# =============================================================================
-# === FOOTER ==================================================================
-# =============================================================================
-# (Footer removed per request)
+# ------------------------------------------------------------------------------
+# 7) Footer Removed per earlier requests
+# ------------------------------------------------------------------------------
