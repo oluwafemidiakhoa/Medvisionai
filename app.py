@@ -1,4 +1,3 @@
-# main_app.py (Revision for Debugging Image Display)
 
 # --- Core Libraries ---
 import io
@@ -17,7 +16,7 @@ try:
     import streamlit_drawable_canvas as st_canvas_module
     CANVAS_VERSION = getattr(st_canvas_module, '__version__', 'Unknown')
 except ImportError:
-    st.error("CRITICAL ERROR: streamlit-drawable-canvas is not installed. Cannot run app. `pip install streamlit-drawable-canvas`")
+    st.error("CRITICAL ERROR: streamlit-drawable-canvas is not installed. Cannot run app. pip install streamlit-drawable-canvas")
     st.stop() # Stop if canvas is missing
 
 # ------------------------------------------------------------------------------
@@ -36,14 +35,14 @@ try:
     import PIL
     PIL_VERSION = getattr(PIL, '__version__', 'Unknown')
 except ImportError:
-    st.error("CRITICAL ERROR: Pillow (PIL) is not installed. Cannot run app. `pip install Pillow`")
+    st.error("CRITICAL ERROR: Pillow (PIL) is not installed. Cannot run app. pip install Pillow")
     st.stop()
 try:
     import pydicom
     import pydicom.errors
     PYDICOM_VERSION = getattr(pydicom, '__version__', 'Unknown')
 except ImportError:
-    st.error("CRITICAL ERROR: pydicom is not installed. Needed for DICOM support. `pip install pydicom`")
+    st.error("CRITICAL ERROR: pydicom is not installed. Needed for DICOM support. pip install pydicom")
     # Don't stop immediately, allow non-DICOM use, but log warning
     PYDICOM_VERSION = 'Not Installed'
     pydicom = None # Set to None to allow checks later
@@ -64,6 +63,7 @@ logger.info(f"Streamlit Version: {st.__version__}")
 logger.info(f"Pillow (PIL) Version: {PIL_VERSION}")
 logger.info(f"Pydicom Version: {PYDICOM_VERSION}")
 logger.info(f"Streamlit Drawable Canvas Version: {CANVAS_VERSION}")
+
 
 # ------------------------------------------------------------------------------
 # Monkey-Patch (Optional, often not needed with modern Streamlit, keep for now)
@@ -91,6 +91,7 @@ if not hasattr(st_image, "image_to_url"):
             return ""
     st_image.image_to_url = image_to_url_monkey_patch
     logging.info("Applied monkey-patch for streamlit.elements.image.image_to_url (if missing)")
+
 
 # ------------------------------------------------------------------------------
 # <<< --- Import Custom Utilities & Fallbacks --- >>>
@@ -401,9 +402,9 @@ with st.sidebar:
                     st.session_state.uploaded_file_info = None # Allow re-upload attempt
                     st.session_state.raw_image_bytes = None; st.session_state.display_image = None; st.session_state.processed_image = None; st.session_state.dicom_dataset = None; st.session_state.dicom_metadata = {}; st.session_state.current_display_wc = None; st.session_state.current_display_ww = None; st.session_state.is_dicom = False
 
-            # End `with st.spinner`
-        # End `if new_file_info != ...`
-    # End `if uploaded_file is not None`
+            # End with st.spinner
+        # End if new_file_info != ...
+    # End if uploaded_file is not None
 
 
     # --- DICOM W/L Controls ---
@@ -509,6 +510,20 @@ with col1:
     # Get the display image object from state
     display_img_object = st.session_state.get("display_image")
     logger.debug(f"Main Panel: Checking display_image from state. Type: {type(display_img_object)}")
+
+    # --- !! DEBUG STEP: Always try st.image first !! ---
+    if isinstance(display_img_object, Image.Image):
+        st.markdown("--- DEBUG: st.image Attempt ---")
+        try:
+            st.image(display_img_object, caption=f"Direct display via st.image (Mode: {display_img_object.mode})", use_column_width='auto') # Use auto width
+            logger.info(f"DEBUG: Successfully displayed image using st.image. Mode={display_img_object.mode}, Size={display_img_object.size}")
+            st.markdown("--- End DEBUG ---")
+        except Exception as st_img_err:
+            st.error(f"DEBUG: Failed to display image using st.image: {st_img_err}")
+            logger.error(f"DEBUG: st.image rendering failed: {st_img_err}", exc_info=True)
+            st.markdown("--- End DEBUG ---")
+            # Don't proceed to canvas if st.image fails
+            display_img_object = None # Nullify to prevent canvas attempt
 
     # --- Original Canvas Logic (Proceed only if display_img_object is still valid PIL Image) ---
     if isinstance(display_img_object, Image.Image):
