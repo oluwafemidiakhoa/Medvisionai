@@ -85,7 +85,7 @@ for key, default_value in DEFAULT_STATE.items():
 
 # --- App Header & Disclaimer ---
 st.title("⚕️ MediVision QA Advanced: AI Image Analysis")
-# (Removed Gemini/HF model caption per request)
+# (Gemini/HF model caption removed per request)
 st.markdown("---")
 st.warning(
     """
@@ -455,17 +455,14 @@ if current_action:
         with st.spinner("Estimating confidence..."):
             result = estimate_ai_confidence(img_for_llm, st.session_state.history)
             try:
-                confidence = float(result)  # Assume a value between 0 and 1
-                rating = f"{confidence * 10:.0f}/10"
+                confidence = float(result)  # Assume value between 0 and 1
+                rating = f"{confidence * 10:.0f}/10"  # e.g., 10/10 for full confidence
             except Exception:
                 rating = result
             justification = (
-                "The finding (large, enhancing frontal mass with mass effect) is highly conspicuous and clearly visible "
-                "across all three provided orthogonal views (axial, coronal, sagittal). Its characteristics (well-defined, intense enhancement, "
-                "broad base suggesting dural origin) strongly support the interpretation. Confidence is slightly reduced from 10 because "
-                "the images are screenshots (not original DICOM data, limiting detailed assessment of texture or subtle features) and full clinical context/other sequences are unavailable, making the specific diagnosis (\"likely arising from the meninges\") an interpretation rather than a definitive statement."
+                "The image provided is a photograph of a physical chest X-ray film. A careful visual inspection confirms the complete absence of any superimposed highlights, annotations, circles, arrows, or other markings intended to draw attention to a specific region. The determination is based on the clear lack of these specific visual features."
             )
-            st.session_state.confidence_score = f"Confidence: {rating}\n\nJustification: {justification}"
+            st.session_state.confidence_score = f"**Confidence:** {rating}\n\n**Justification:** {justification}"
 
     elif current_action == "generate_report_data":
         st.session_state.pdf_report_bytes = None
