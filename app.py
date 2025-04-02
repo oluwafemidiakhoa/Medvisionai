@@ -30,6 +30,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Add the new logo
+st.image("assets/new_logo.png", width=150)
+
 # --- Image & DICOM Processing (Import early, check versions) ---
 try:
     from PIL import Image, ImageDraw, UnidentifiedImageError
@@ -327,11 +330,11 @@ with st.sidebar:
 
                             # Prepare processed image (can keep original mode or convert as needed by AI)
                             # Example: Keep original unless it's palette etc.
-                            if img_copy_for_processing.mode in ['P', 'RGBA']: # Modes often needing conversion
+                            if img_copy_for_processing.mode in ['P', 'RGBA']:
                                 logger.info(f"Converting processed image from {img_copy_for_processing.mode} to RGB for AI.")
                                 temp_processed_image = img_copy_for_processing.convert("RGB")
                             else:
-                                temp_processed_image = img_copy_for_processing # Use as-is (L, RGB etc)
+                                temp_processed_image = img_copy_for_processing
                             logger.debug(f"Processed image prepared. Mode: {temp_processed_image.mode}")
 
                             st.session_state.dicom_dataset = None; st.session_state.dicom_metadata = {}
@@ -407,9 +410,8 @@ with st.sidebar:
 
 
     # --- DICOM W/L Controls ---
-    # (Keep W/L logic as in previous corrected version - seems okay)
     st.markdown("---")
-    if st.session_state.is_dicom and st.session_state.dicom_dataset and isinstance(st.session_state.get("display_image"), Image.Image): # W/L Controls + check display_image
+    if st.session_state.is_dicom and st.session_state.dicom_dataset and isinstance(st.session_state.get("display_image"), Image.Image):
         with st.expander("DICOM Window/Level", expanded=False):
             try:
                 wc_current_slider, ww_current_slider = dicom_wl_sliders(
@@ -431,8 +433,7 @@ with st.sidebar:
                     logger.info(f"W/L: Applying WC={wc_current_slider:.1f}, WW={ww_current_slider:.1f}")
                     with st.spinner("Applying Window/Level..."):
                          new_display_image = dicom_to_image(st.session_state.dicom_dataset, wc_current_slider, ww_current_slider)
-                         if isinstance(new_display_image, Image.Image): # Check result
-                              # Ensure RGB for display consistency
+                         if isinstance(new_display_image, Image.Image):
                               if new_display_image.mode != 'RGB':
                                    logger.debug(f"W/L: Converting new display image from {new_display_image.mode} to RGB")
                                    st.session_state.display_image = new_display_image.convert('RGB')
@@ -449,14 +450,11 @@ with st.sidebar:
 
 
     # --- AI Actions ---
-    # (Keep AI Action buttons logic as in previous corrected version - seems okay)
-    if isinstance(st.session_state.get("display_image"), Image.Image): # AI Actions available only if display_image is valid
+    if isinstance(st.session_state.get("display_image"), Image.Image):
         st.subheader("AI Actions")
-        # --- Initial Analysis ---
         if st.button("▶️ Run Initial Analysis", key="analyze_btn", help="Perform a general analysis of the image.", use_container_width=True):
             st.session_state.last_action = "analyze"; st.rerun()
         st.markdown("---")
-        # --- Q&A ---
         st.subheader("❓ Ask AI Question")
         roi_coords = st.session_state.get("roi_coords")
         if roi_coords:
@@ -473,7 +471,6 @@ with st.sidebar:
                 st.session_state.last_action = "ask"; logger.info(f"Ask AI clicked: '{user_question[:50]}...'"); st.rerun()
             else: st.warning("Enter question."); logger.warning("Ask AI clicked with empty question.")
         st.markdown("---")
-        # --- Condition Analysis ---
         st.subheader("🎯 Focused Condition Analysis")
         DISEASE_OPTIONS = ["Pneumonia", "Lung Cancer", "Stroke", "Fracture", "Appendicitis", "Tuberculosis", "COVID-19", "Pulmonary Embolism", "Brain Tumor", "Arthritis", "Osteoporosis", "Cardiomegaly", "Aortic Aneurysm", "Bowel Obstruction", "Mass/Nodule", "Effusion"]
         disease_options_sorted = [""] + sorted(DISEASE_OPTIONS)
@@ -483,7 +480,6 @@ with st.sidebar:
             if selected_disease: st.session_state.last_action = "disease"; logger.info(f"Condition Analysis clicked: '{selected_disease}'"); st.rerun()
             else: st.warning("Select condition."); logger.warning("Condition Analysis clicked empty.")
         st.markdown("---")
-        # --- Confidence & Report ---
         with st.expander("📊 Confidence & Report", expanded=True):
             can_estimate = bool(st.session_state.history or st.session_state.initial_analysis or st.session_state.disease_analysis)
             if st.button("📈 Estimate Confidence", key="confidence_btn", help="Estimate confidence.", disabled=not can_estimate, use_container_width=True):
@@ -494,26 +490,21 @@ with st.sidebar:
             if st.session_state.get("pdf_report_bytes"):
                 report_filename = f"RadVisionAI_Report_{st.session_state.session_id or 'session'}.pdf"
                 st.download_button(label="⬇️ Download PDF Report", data=st.session_state.pdf_report_bytes, file_name=report_filename, mime="application/pdf", key="download_pdf_button", help=f"Download report ({report_filename})", use_container_width=True)
-    else: # No valid image loaded yet
+    else:
         st.info("👈 Upload an image file to begin analysis.")
-
 
 # =============================================================================
 # === MAIN PANEL DISPLAYS =====================================================
 # =============================================================================
 col1, col2 = st.columns([2, 3])
 
-# --- Column 1: Image Viewer, Canvas, Metadata ---
 with col1:
     st.subheader("🖼️ Image Viewer")
-    # Get the display image object from state
     display_img_object = st.session_state.get("display_image")
     logger.debug(f"Main Panel: Checking display_image from state. Type: {type(display_img_object)}")
 
-    # --- Original Canvas Logic (Proceed only if display_img_object is still valid PIL Image) ---
     if isinstance(display_img_object, Image.Image):
         logger.debug(f"Viewer: Proceeding to canvas setup. Image Mode: {display_img_object.mode}, Size: {display_img_object.size}")
-        # Prepare background image for canvas (ensure RGB)
         bg_image_pil = None
         try:
             if display_img_object.mode == 'RGB':
@@ -523,65 +514,74 @@ with col1:
                 logger.info(f"Canvas Prep: Converting display image from {display_img_object.mode} to RGB for canvas.")
                 bg_image_pil = display_img_object.convert('RGB')
                 logger.debug(f"Canvas Prep: Conversion result type {type(bg_image_pil)}, mode {getattr(bg_image_pil, 'mode', 'N/A')}")
-            # Final check after conversion
             if not isinstance(bg_image_pil, Image.Image):
                 raise TypeError(f"Image object invalid after RGB conversion attempt (became {type(bg_image_pil)}).")
         except Exception as prep_err:
              st.error(f"Failed to prepare image for canvas display: {prep_err}")
              logger.error(f"Canvas Prep: Image preparation error: {prep_err}", exc_info=True)
-             bg_image_pil = None # Ensure it's None on failure
+             bg_image_pil = None
 
-        # Proceed only if background image preparation was successful
         if isinstance(bg_image_pil, Image.Image):
-            # --- Calculate Canvas Dimensions ---
             MAX_CANVAS_WIDTH = 700; MAX_CANVAS_HEIGHT = 600
             img_w, img_h = bg_image_pil.size
             aspect_ratio = img_w / img_h if img_h > 0 else 1
             container_width = MAX_CANVAS_WIDTH; canvas_width = min(img_w, container_width); canvas_height = int(canvas_width / aspect_ratio) if aspect_ratio > 0 else MAX_CANVAS_HEIGHT
-            if canvas_height > MAX_CANVAS_HEIGHT: canvas_height = MAX_CANVAS_HEIGHT; canvas_width = int(canvas_height * aspect_ratio)
-            canvas_width = max(int(canvas_width), 150); canvas_height = max(int(canvas_height), 150)
+            if canvas_height > MAX_CANVAS_HEIGHT:
+                canvas_height = MAX_CANVAS_HEIGHT
+                canvas_width = int(canvas_height * aspect_ratio)
+            canvas_width = max(int(canvas_width), 150)
+            canvas_height = max(int(canvas_height), 150)
             logger.info(f"Canvas Prep: Calculated canvas size W={canvas_width}, H={canvas_height}")
 
-            # --- Drawable Canvas ---
             if canvas_width > 0 and canvas_height > 0:
                 st.caption("Draw ROI below. (If image doesn't appear here but did above, canvas has an issue).")
                 try:
                     initial_drawing = st.session_state.get("canvas_drawing")
-                    if initial_drawing and not isinstance(initial_drawing, dict): initial_drawing = None # Safety check
+                    if initial_drawing and not isinstance(initial_drawing, dict):
+                        initial_drawing = None
                     logger.info(f"Rendering st_canvas. BG img mode: {bg_image_pil.mode}, size: {bg_image_pil.size}. Initial drawing: {'Set' if initial_drawing else 'None'}")
 
-                    # Make sure bg_image_pil is still valid before passing
                     if not isinstance(bg_image_pil, Image.Image):
                          raise ValueError("Background image became invalid just before st_canvas call.")
 
                     canvas_result = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.2)", stroke_width=2, stroke_color="rgba(220, 50, 50, 0.9)",
-                        background_image=bg_image_pil, # Use the prepared RGB image
+                        background_image=bg_image_pil,
                         update_streamlit=True, height=canvas_height, width=canvas_width,
                         drawing_mode="rect", initial_drawing=initial_drawing,
                         key="drawable_canvas",
                     )
                     logger.info("st_canvas rendered (or attempted).")
 
-                    # --- ROI Processing Logic ---
                     if canvas_result is not None and canvas_result.json_data is not None:
-                        st.session_state.canvas_drawing = canvas_result.json_data # Store latest state
+                        st.session_state.canvas_drawing = canvas_result.json_data
                         if canvas_result.json_data.get("objects"):
                             last_object = canvas_result.json_data["objects"][-1]
                             if last_object["type"] == "rect":
-                                 scale_x = img_w / canvas_width; scale_y = img_h / canvas_height
-                                 raw_left = int(last_object["left"]); raw_top = int(last_object["top"]); raw_width = int(last_object["width"] * last_object.get("scaleX", 1)); raw_height = int(last_object["height"] * last_object.get("scaleY", 1))
-                                 orig_left = max(0, int(raw_left * scale_x)); orig_top = max(0, int(raw_top * scale_y))
-                                 orig_width = int(raw_width * scale_x); orig_height = int(raw_height * scale_y)
-                                 orig_right = min(img_w, orig_left + orig_width); orig_bottom = min(img_h, orig_top + orig_height)
-                                 orig_width = max(0, orig_right - orig_left); orig_height = max(0, orig_bottom - orig_top)
+                                 scale_x = img_w / canvas_width
+                                 scale_y = img_h / canvas_height
+                                 raw_left = int(last_object["left"])
+                                 raw_top = int(last_object["top"])
+                                 raw_width = int(last_object["width"] * last_object.get("scaleX", 1))
+                                 raw_height = int(last_object["height"] * last_object.get("scaleY", 1))
+                                 orig_left = max(0, int(raw_left * scale_x))
+                                 orig_top = max(0, int(raw_top * scale_y))
+                                 orig_width = int(raw_width * scale_x)
+                                 orig_height = int(raw_height * scale_y)
+                                 orig_right = min(img_w, orig_left + orig_width)
+                                 orig_bottom = min(img_h, orig_top + orig_height)
+                                 orig_width = max(0, orig_right - orig_left)
+                                 orig_height = max(0, orig_bottom - orig_top)
                                  MIN_ROI_DIM = 10
                                  if orig_width >= MIN_ROI_DIM and orig_height >= MIN_ROI_DIM:
                                      new_roi = {"left": orig_left, "top": orig_top, "width": orig_width, "height": orig_height}
                                      if st.session_state.roi_coords != new_roi:
-                                         st.session_state.roi_coords = new_roi; logger.info(f"ROI updated: {new_roi}"); st.rerun()
+                                         st.session_state.roi_coords = new_roi
+                                         logger.info(f"ROI updated: {new_roi}")
+                                         st.rerun()
                         elif not canvas_result.json_data.get("objects") and st.session_state.roi_coords is not None:
-                                logger.info("Canvas cleared, removing ROI coordinates."); st.session_state.roi_coords = None; # Removed rerun here
+                                logger.info("Canvas cleared, removing ROI coordinates.")
+                                st.session_state.roi_coords = None
 
                 except Exception as canvas_error:
                     st.error(f"Error rendering/processing drawing canvas: {canvas_error}")
@@ -594,23 +594,18 @@ with col1:
              st.info("Image could not be prepared for canvas background.")
              logger.error("Cannot display canvas because bg_image_pil is invalid or prep failed.")
 
-        # --- DICOM Metadata Display ---
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
              logger.debug("Displaying DICOM metadata.")
              display_dicom_metadata(st.session_state.dicom_metadata)
-
-    # --- Fallback if display_image is NOT valid or st.image failed ---
     else:
         logger.debug("Viewer: No valid display_image object available for rendering.")
         st.markdown("---")
         if st.session_state.get("uploaded_file_info"):
             st.warning("Image processing failed or resulted in invalid data. Check logs above or in terminal.")
-        else: st.info("Upload an image using the sidebar to start.")
+        else:
+            st.info("Upload an image using the sidebar to start.")
         st.markdown("<div style='height: 400px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; text-align: center; color: #aaa; font-style: italic;'>Image Display Area<br/>(Upload Required or Processing Failed)</div>", unsafe_allow_html=True)
 
-
-# --- Column 2: Analysis Results Tabs ---
-# (Keep Tabs logic as in previous corrected version - seems okay)
 with col2:
     st.subheader("📊 Analysis & Results")
     tab_titles = ["🔬 Initial Analysis", "💬 Q&A History", "🩺 Disease Focus", "📈 Confidence"]
@@ -627,9 +622,14 @@ with col2:
         if st.session_state.history:
              with st.expander("View Full Conversation History", expanded=True):
                  for i, (q, a) in enumerate(st.session_state.history):
-                     st.markdown(f"**You ({i+1}):**"); st.caption(q); st.markdown(f"**AI ({i+1}):**"); st.markdown(a, unsafe_allow_html=True);
-                     if i < len(st.session_state.history) - 1: st.markdown("---")
-        else: st.caption("No conversation history.")
+                     st.markdown(f"**You ({i+1}):**")
+                     st.caption(q)
+                     st.markdown(f"**AI ({i+1}):**")
+                     st.markdown(a, unsafe_allow_html=True)
+                     if i < len(st.session_state.history) - 1:
+                         st.markdown("---")
+        else:
+            st.caption("No conversation history.")
     with tabs[2]:
         disease_analysis_content = st.session_state.get("disease_analysis", "").strip()
         disease_analysis_display = disease_analysis_content if disease_analysis_content else "No focused condition analysis performed yet."
@@ -639,100 +639,159 @@ with col2:
         confidence_score_display = confidence_score_content if confidence_score_content else "No confidence estimation performed yet."
         st.text_area("AI Confidence Estimation", value=confidence_score_display, height=450, key="output_confidence_text", disabled=True, help="AI's estimated confidence.")
 
-
 # =============================================================================
 # === ACTION HANDLING LOGIC ===================================================
 # =============================================================================
-# (Keep Action Handling logic as in previous corrected version - seems okay)
 current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"ACTION HANDLER: Initiating action '{current_action}'")
     processed_image = st.session_state.get("processed_image")
     session_id = st.session_state.get("session_id")
 
-    # Pre-Action Checks
-    action_requires_processed_image = current_action not in ["generate_report_data"] # Report uses display_image
+    action_requires_processed_image = current_action not in ["generate_report_data"]
     if action_requires_processed_image and not isinstance(processed_image, Image.Image):
-        error_msg = f"Cannot perform '{current_action}': Processed image invalid/missing."; st.error(error_msg); logger.error(f"Action '{current_action}' aborted. Invalid processed_image (type: {type(processed_image)})."); st.session_state.last_action = None; st.stop()
+        error_msg = f"Cannot perform '{current_action}': Processed image invalid/missing."
+        st.error(error_msg)
+        logger.error(f"Action '{current_action}' aborted. Invalid processed_image (type: {type(processed_image)}).")
+        st.session_state.last_action = None
+        st.stop()
     if not session_id:
-        error_msg = f"Cannot perform '{current_action}': Session ID missing."; st.error(error_msg); logger.error(f"Action '{current_action}' aborted. Missing Session ID."); st.session_state.last_action = None; st.stop()
+        error_msg = f"Cannot perform '{current_action}': Session ID missing."
+        st.error(error_msg)
+        logger.error(f"Action '{current_action}' aborted. Missing Session ID.")
+        st.session_state.last_action = None
+        st.stop()
 
-    # Prepare Common Vars
     img_for_llm: Image.Image = processed_image
     roi: Optional[Dict[str, int]] = st.session_state.get("roi_coords")
     roi_context_str = " (focused on ROI)" if roi else ""
     history: List[Tuple[str, str]] = st.session_state.get("history", [])
-    if not isinstance(history, list): history = []; st.session_state.history = history; logger.warning("History was not list, reset.")
+    if not isinstance(history, list):
+        history = []
+        st.session_state.history = history
+        logger.warning("History was not list, reset.")
 
     try:
-        # --- Execute Actions --- (Simplified logging here, detailed logs in functions)
         if current_action == "analyze":
-            st.info(f"🔬 Performing analysis{roi_context_str}...");
-            with st.spinner("AI analyzing..."): analysis_result = run_initial_analysis(img_for_llm) # Add roi=roi if function supports
-            st.session_state.initial_analysis = analysis_result; st.success("Analysis finished.")
+            st.info(f"🔬 Performing analysis{roi_context_str}...")
+            with st.spinner("AI analyzing..."):
+                analysis_result = run_initial_analysis(img_for_llm)
+            st.session_state.initial_analysis = analysis_result
+            st.success("Analysis finished.")
         elif current_action == "ask":
             question = st.session_state.get("question_input_widget", "").strip()
-            if not question: st.warning("Enter question."); logger.warning("Ask: empty question.")
+            if not question:
+                st.warning("Enter question.")
+                logger.warning("Ask: empty question.")
             else:
-                st.info(f"❓ Asking AI{roi_context_str}..."); st.session_state.qa_answer = ""
+                st.info(f"❓ Asking AI{roi_context_str}...")
+                st.session_state.qa_answer = ""
                 primary_model_name = "Gemini"
-                with st.spinner(f"{primary_model_name} thinking..."): gemini_answer, success = run_multimodal_qa(img_for_llm, question, history, roi)
+                with st.spinner(f"{primary_model_name} thinking..."):
+                    gemini_answer, success = run_multimodal_qa(img_for_llm, question, history, roi)
                 if success:
-                    st.session_state.qa_answer = gemini_answer; st.session_state.history.append((question, gemini_answer)); st.success(f"{primary_model_name} answered.")
-                else: # Primary failed, try fallback
-                    error_message = f"Primary AI ({primary_model_name}) failed: {gemini_answer}"; st.error(error_message); logger.warning(f"Primary AI failed. Reason: {gemini_answer}")
+                    st.session_state.qa_answer = gemini_answer
+                    st.session_state.history.append((question, gemini_answer))
+                    st.success(f"{primary_model_name} answered.")
+                else:
+                    error_message = f"Primary AI ({primary_model_name}) failed: {gemini_answer}"
+                    st.error(error_message)
+                    logger.warning(f"Primary AI failed. Reason: {gemini_answer}")
                     st.session_state.qa_answer = f"**[Primary AI Error]** {gemini_answer}\n\n---\n"
-                    # Simplified Fallback Check
-                    hf_token = bool(os.environ.get("HF_API_TOKEN")); hf_model_ok = (HF_VQA_MODEL_ID and HF_VQA_MODEL_ID not in ["hf_model_not_found", "unavailable"] and 'query_hf_vqa_inference_api' in globals())
+                    hf_token = bool(os.environ.get("HF_API_TOKEN"))
+                    hf_model_ok = (HF_VQA_MODEL_ID and HF_VQA_MODEL_ID not in ["hf_model_not_found", "unavailable"] and 'query_hf_vqa_inference_api' in globals())
                     if hf_token and hf_model_ok:
-                        st.info(f"Attempting fallback ({HF_VQA_MODEL_ID})...");
-                        with st.spinner(f"Fallback AI thinking..."): hf_answer, hf_success = query_hf_vqa_inference_api(img_for_llm, question, roi)
-                        if hf_success: fallback_display = f"**[Fallback ({HF_VQA_MODEL_ID})]**\n\n{hf_answer}"; st.session_state.qa_answer += fallback_display; st.session_state.history.append((f"[Fallback] {question}", fallback_display)); st.success("Fallback AI answered.")
-                        else: fallback_error = f"Fallback ({HF_VQA_MODEL_ID}) failed: {hf_answer}"; st.session_state.qa_answer += f"**[Fallback Failed]** {fallback_error}"; st.error(fallback_error); logger.error(f"HF fallback fail. Reason: {hf_answer}")
-                    else: fallback_msg = f"Fallback unavailable (HF Token: {hf_token}, HF Model/Func: {hf_model_ok})."; st.session_state.qa_answer += f"**[Fallback Unavailable]** {fallback_msg}"; st.warning(fallback_msg); logger.warning(f"HF fallback skipped. Missing: Token={not hf_token}, Model/Func={not hf_model_ok}")
+                        st.info(f"Attempting fallback ({HF_VQA_MODEL_ID})...")
+                        with st.spinner(f"Fallback AI thinking..."):
+                            hf_answer, hf_success = query_hf_vqa_inference_api(img_for_llm, question, roi)
+                        if hf_success:
+                            fallback_display = f"**[Fallback ({HF_VQA_MODEL_ID})]**\n\n{hf_answer}"
+                            st.session_state.qa_answer += fallback_display
+                            st.session_state.history.append((f"[Fallback] {question}", fallback_display))
+                            st.success("Fallback AI answered.")
+                        else:
+                            fallback_error = f"Fallback ({HF_VQA_MODEL_ID}) failed: {hf_answer}"
+                            st.session_state.qa_answer += f"**[Fallback Failed]** {fallback_error}"
+                            st.error(fallback_error)
+                            logger.error(f"HF fallback fail. Reason: {hf_answer}")
+                    else:
+                        fallback_msg = f"Fallback unavailable (HF Token: {hf_token}, HF Model/Func: {hf_model_ok})."
+                        st.session_state.qa_answer += f"**[Fallback Unavailable]** {fallback_msg}"
+                        st.warning(fallback_msg)
+                        logger.warning(f"HF fallback skipped. Missing: Token={not hf_token}, Model/Func={not hf_model_ok}")
         elif current_action == "disease":
             selected_disease = st.session_state.get("disease_select_widget")
-            if not selected_disease: st.warning("Select condition."); logger.warning("Disease: no selection.")
+            if not selected_disease:
+                st.warning("Select condition.")
+                logger.warning("Disease: no selection.")
             else:
-                st.info(f"🩺 Analyzing for '{selected_disease}'{roi_context_str}...");
-                with st.spinner(f"AI assessing '{selected_disease}'..."): disease_result = run_disease_analysis(img_for_llm, selected_disease, roi)
-                st.session_state.disease_analysis = disease_result; st.success(f"Analysis for '{selected_disease}' finished.")
+                st.info(f"🩺 Analyzing for '{selected_disease}'{roi_context_str}...")
+                with st.spinner(f"AI assessing '{selected_disease}'..."):
+                    disease_result = run_disease_analysis(img_for_llm, selected_disease, roi)
+                st.session_state.disease_analysis = disease_result
+                st.success(f"Analysis for '{selected_disease}' finished.")
         elif current_action == "confidence":
-            if not history and not st.session_state.initial_analysis and not st.session_state.disease_analysis: st.warning("Cannot estimate: No history/analysis."); logger.warning("Confidence skip: No context.")
+            if not history and not st.session_state.initial_analysis and not st.session_state.disease_analysis:
+                st.warning("Cannot estimate: No history/analysis.")
+                logger.warning("Confidence skip: No context.")
             else:
-                st.info(f"📊 Estimating AI confidence{roi_context_str}...");
-                with st.spinner("Calculating confidence..."): confidence_result = estimate_ai_confidence(img_for_llm, history, st.session_state.initial_analysis, st.session_state.disease_analysis, roi) # Pass context
-                st.session_state.confidence_score = confidence_result; st.success("Confidence estimated.")
+                st.info(f"📊 Estimating AI confidence{roi_context_str}...")
+                with st.spinner("Calculating confidence..."):
+                    confidence_result = estimate_ai_confidence(
+                        img_for_llm,
+                        history,
+                        st.session_state.initial_analysis,
+                        st.session_state.disease_analysis,
+                        roi
+                    )
+                st.session_state.confidence_score = confidence_result
+                st.success("Confidence estimated.")
         elif current_action == "generate_report_data":
-            st.info("📄 Preparing PDF data..."); st.session_state.pdf_report_bytes = None;
+            st.info("📄 Preparing PDF data...")
+            st.session_state.pdf_report_bytes = None
             img_for_report: Optional[Image.Image] = st.session_state.get("display_image")
-            if not isinstance(img_for_report, Image.Image): st.error("Cannot gen report: Invalid display image."); logger.error("PDF skip: invalid display_image.")
+            if not isinstance(img_for_report, Image.Image):
+                st.error("Cannot gen report: Invalid display image.")
+                logger.error("PDF skip: invalid display_image.")
             else:
-                 # Simplified Report Gen Logic (details in previous versions)
-                 img_with_roi = img_for_report # Placeholder - Add drawing logic back if needed
-                 roi_coords = st.session_state.get("roi_coords")
-                 if roi_coords: # Add drawing logic here if desired (copy image, draw rect)
+                img_with_roi = img_for_report
+                roi_coords = st.session_state.get("roi_coords")
+                if roi_coords:
                     logger.info("Report: ROI detected, add drawing logic if needed.")
-                    # Example placeholder: just log it for now
-                    # img_copy = img_for_report.copy().convert("RGB"); draw = ImageDraw.Draw(img_copy); ... draw.rectangle ...; img_with_roi = img_copy
+                    # (Optional rectangle drawing on a copy of the display image)
 
-                 qa_hist = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in history]) if history else "No Q&A."
-                 outputs = { "Session ID": session_id, "Preliminary Analysis": st.session_state.get("initial_analysis","N/P"), "Conversation History": qa_hist, "Condition-Specific Analysis": st.session_state.get("disease_analysis","N/P"), "Last Confidence": st.session_state.get("confidence_score","N/E")}
-                 # Add filtered DICOM Meta if needed (logic from previous version)
-                 if st.session_state.get("is_dicom") and st.session_state.get("dicom_metadata"):
-                      logger.info("Report: Including filtered DICOM metadata.")
-                      # Add filtering logic here...
-                      outputs["DICOM Metadata (Filtered)"] = "DICOM Metadata Placeholder - Add filtering logic"
+                qa_hist = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in history]) if history else "No Q&A."
+                outputs = {
+                    "Session ID": session_id,
+                    "Preliminary Analysis": st.session_state.get("initial_analysis","N/P"),
+                    "Conversation History": qa_hist,
+                    "Condition-Specific Analysis": st.session_state.get("disease_analysis","N/P"),
+                    "Last Confidence": st.session_state.get("confidence_score","N/E")
+                }
+                if st.session_state.get("is_dicom") and st.session_state.get("dicom_metadata"):
+                    logger.info("Report: Including filtered DICOM metadata.")
+                    outputs["DICOM Metadata (Filtered)"] = "DICOM Metadata Placeholder - Add filtering logic"
 
-                 with st.spinner("🎨 Generating PDF..."): pdf_bytes = generate_pdf_report_bytes(session_id, img_with_roi, outputs)
-                 if pdf_bytes: st.session_state.pdf_report_bytes = pdf_bytes; st.success("✅ PDF data generated!"); logger.info("PDF gen ok.")
-                 else: st.error("❌ PDF generation failed."); logger.error("PDF gen fail.")
-        else: st.warning(f"Unknown action: '{current_action}'."); logger.warning(f"Unknown action: '{current_action}'")
-    except Exception as e: st.error(f"Unexpected error during action '{current_action}'."); logger.critical(f"Unhandled action error: {e}", exc_info=True)
-    finally: st.session_state.last_action = None; logger.debug(f"Action '{current_action}' finished."); st.rerun()
+                with st.spinner("🎨 Generating PDF..."):
+                    pdf_bytes = generate_pdf_report_bytes(session_id, img_with_roi, outputs)
+                if pdf_bytes:
+                    st.session_state.pdf_report_bytes = pdf_bytes
+                    st.success("✅ PDF data generated!")
+                    logger.info("PDF gen ok.")
+                else:
+                    st.error("❌ PDF generation failed.")
+                    logger.error("PDF gen fail.")
+        else:
+            st.warning(f"Unknown action: '{current_action}'.")
+            logger.warning(f"Unknown action: '{current_action}'")
+    except Exception as e:
+        st.error(f"Unexpected error during action '{current_action}'.")
+        logger.critical(f"Unhandled action error: {e}", exc_info=True)
+    finally:
+        st.session_state.last_action = None
+        logger.debug(f"Action '{current_action}' finished.")
+        st.rerun()
 
-
-# --- Footer ---
 st.markdown("---")
 st.caption(f"⚕️ RadVision AI Advanced | Session: {st.session_state.get('session_id', 'N/A')}")
 
