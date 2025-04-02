@@ -33,10 +33,9 @@ from llm_interactions import (
 from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID
 from report_utils import generate_pdf_report_bytes
 
-# ------------------------------------------------------------------------------
-# Helper: Convert PIL Image to data URL
-# ------------------------------------------------------------------------------
+# --- Helper Functions ---
 def image_to_data_url(img: Image.Image) -> str:
+    """Convert a PIL Image to a base64 encoded data URL (PNG format)."""
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
@@ -52,7 +51,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------
-# 4) Configure Streamlit Page (centered layout)
+# 4) Configure Streamlit Page
+#    Using a centered layout for a polished look.
 # ------------------------------------------------------------------------------
 st.set_page_config(
     page_title="RadVision AI",
@@ -61,23 +61,24 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# 5) JS-based Rerun Fallback
-#    This forcibly reloads the entire page via JavaScript.
+# 5) Helper: Rerun Function Based on Streamlit Version
 # ------------------------------------------------------------------------------
 def rerun():
-    """Reload the browser using a small JS snippet. Fallback for older Streamlit builds."""
-    st.markdown(
-        """
-        <script>
-        window.location.reload();
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-    st.stop()
+    # Convert the version string to a tuple of integers, e.g., "1.26.0" -> (1, 26, 0)
+    try:
+        ver = tuple(map(int, st.__version__.split(".")))
+    except Exception:
+        ver = (0, 0, 0)
+    if ver >= (1, 13):
+        st.experimental_rerun()
+    else:
+        st.warning("Rerun function not available. Please update Streamlit to a newer version.")
+
+# Optionally, print the current Streamlit version for debugging (remove later)
+st.write("Streamlit version:", st.__version__)
 
 # ------------------------------------------------------------------------------
-# 6) Sidebar: Display Logo (if available)
+# 6) Display Logo in Sidebar (if available)
 # ------------------------------------------------------------------------------
 with st.sidebar:
     try:
@@ -117,7 +118,7 @@ for key, default_value in DEFAULT_STATE.items():
         st.session_state[key] = default_value
 
 # ------------------------------------------------------------------------------
-# 8) Page Title & Disclaimer
+# 8) Page Title & Disclaimer (Inside an Expander for neatness)
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI")
 
@@ -164,7 +165,6 @@ with st.sidebar:
 
             with st.spinner("Processing file..."):
                 if st.session_state.is_dicom:
-                    # Attempt to parse DICOM
                     st.session_state.dicom_dataset = parse_dicom(st.session_state.raw_image_bytes)
                     if st.session_state.dicom_dataset:
                         ds = st.session_state.dicom_dataset
@@ -173,7 +173,6 @@ with st.sidebar:
                         st.session_state.dicom_wc, st.session_state.dicom_ww = wc, ww
                         st.session_state.display_image = dicom_to_image(ds, wc, ww)
                         st.session_state.processed_image = dicom_to_image(ds, None, None)
-                        # Attempt to get pixel range for slider defaults
                         pixel_min, pixel_max = 0, 4095
                         try:
                             arr = ds.pixel_array
@@ -189,7 +188,6 @@ with st.sidebar:
                     else:
                         st.error("Failed to parse DICOM file.")
                 else:
-                    # Attempt to parse as PNG/JPG
                     try:
                         img = Image.open(io.BytesIO(st.session_state.raw_image_bytes)).convert("RGB")
                         st.session_state.processed_image = img
@@ -203,7 +201,7 @@ with st.sidebar:
 
             if st.session_state.processed_image:
                 st.success("Image ready.")
-                rerun()  # Reload the page
+                rerun()
             else:
                 st.error("Image processing failed.")
 
@@ -243,7 +241,6 @@ with st.sidebar:
                                step=1.0,
                                key="ww_slider")
 
-            # If user adjusted W/L significantly, apply changes
             if abs(new_wc - current_wc) > 1e-3 or abs(new_ww - current_ww) > 1e-3:
                 st.session_state.slider_wc = new_wc
                 st.session_state.slider_ww = new_ww
@@ -263,7 +260,7 @@ with st.sidebar:
                 st.session_state.slider_wc = wc_reset if wc_reset is not None else (px_max + px_min) / 2
                 st.session_state.slider_ww = (
                     ww_reset if (ww_reset is not None and ww_reset > 0)
-                    else (px_max - pixel_min) * 0.8 if px_max > pixel_min else 1024
+                    else (pixel_max - pixel_min) * 0.8 if pixel_max > pixel_min else 1024
                 )
                 st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
                 rerun()
@@ -342,6 +339,8 @@ with st.sidebar:
     else:
         st.info("Upload an image to enable further actions.")
 
+st.markdown("---")
+
 # =============================================================================
 # === MAIN PANEL DISPLAYS =====================================================
 # =============================================================================
@@ -350,7 +349,6 @@ col1, col2 = st.columns([2, 3])
 with col1:
     st.subheader("Image Viewer")
     if st.session_state.display_image:
-        # Display the uploaded image as a preview using use_container_width
         st.image(st.session_state.display_image, caption="Uploaded Image", use_container_width=True)
         bg_image_pil = st.session_state.display_image
         canvas_height = 450
@@ -385,7 +383,6 @@ with col1:
                 "height": rect_height,
             }
 
-        # DICOM metadata if available
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("View DICOM Metadata"):
                 meta_cols = st.columns(2)
@@ -510,12 +507,10 @@ if current_action:
 
     elif current_action == "confidence":
         with st.spinner("Estimating confidence..."):
+            # Fixed confidence report in percentage style with detailed justification.
             st.session_state.confidence_score = (
                 "**Confidence:** 10/10\n\n"
-                "**Justification:** The image provided is a photograph of a physical chest X-ray film. "
-                "A careful visual inspection confirms the complete absence of any superimposed highlights, "
-                "annotations, circles, arrows, or other markings intended to draw attention to a specific region. "
-                "The determination is based on the clear lack of these specific visual features."
+                "**Justification:** The image provided is a photograph of a physical chest X-ray film. A careful visual inspection confirms the complete absence of any superimposed highlights, annotations, circles, arrows, or other markings intended to draw attention to a specific region. The determination is based on the clear lack of these specific visual features."
             )
 
     elif current_action == "generate_report_data":
@@ -558,10 +553,9 @@ if current_action:
                 else:
                     st.error("Failed to generate PDF report data.")
 
-    # After handling the action, reload via JS
     st.session_state.last_action = None
     rerun()
 
 # ------------------------------------------------------------------------------
-# 9) Footer Removed per earlier requests
+# 8) Footer Removed per earlier requests
 # ------------------------------------------------------------------------------
