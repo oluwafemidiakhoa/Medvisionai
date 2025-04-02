@@ -54,10 +54,10 @@ logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------
 # 4) Configure Streamlit Page
-#    Using a more centered layout for a polished look
+#    Using a centered layout for a polished look.
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="RadVisionAI",
+    page_title="RadVision AI",
     layout="centered",
     page_icon="⚕️"
 )
@@ -105,7 +105,7 @@ for key, default_value in DEFAULT_STATE.items():
 # ------------------------------------------------------------------------------
 # 7) Page Title & Disclaimer (Inside an Expander for neatness)
 # ------------------------------------------------------------------------------
-st.title("⚕️ RadVisioAI")
+st.title("⚕️ RadVision QA Advanced: AI")
 
 with st.expander("Important Disclaimer", expanded=False):
     st.warning(
@@ -158,7 +158,6 @@ with st.sidebar:
                         st.session_state.dicom_wc, st.session_state.dicom_ww = wc, ww
                         st.session_state.display_image = dicom_to_image(ds, wc, ww)
                         st.session_state.processed_image = dicom_to_image(ds, None, None)
-
                         # Get pixel range for slider defaults
                         pixel_min, pixel_max = 0, 4095
                         try:
@@ -188,7 +187,7 @@ with st.sidebar:
 
             if st.session_state.processed_image:
                 st.success("Image ready.")
-                st.rerun()
+                st.experimental_rerun()
             else:
                 st.error("Image processing failed.")
 
@@ -233,7 +232,7 @@ with st.sidebar:
                 st.session_state.slider_ww = new_ww
                 with st.spinner("Applying Window/Level..."):
                     st.session_state.display_image = dicom_to_image(ds, new_wc, new_ww)
-                st.rerun()
+                st.experimental_rerun()
 
             if st.button("Reset W/L", key="reset_wl"):
                 wc_reset, ww_reset = get_default_wl(ds)
@@ -247,23 +246,22 @@ with st.sidebar:
                 st.session_state.slider_wc = wc_reset if wc_reset is not None else (px_max + px_min) / 2
                 st.session_state.slider_ww = (
                     ww_reset if (ww_reset is not None and ww_reset > 0)
-                    else (px_max - px_min) * 0.8 if px_max > pixel_min else 1024
+                    else (pixel_max - pixel_min) * 0.8 if pixel_max > pixel_min else 1024
                 )
                 st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
-                st.rerun()
+                st.experimental_rerun()
 
     st.markdown("---")
 
     # --- 3) Initial Analysis & Further Actions ---
     if st.session_state.processed_image:
-        # Initial Analysis Button
         if st.button("Initial Analysis", key="analyze_btn"):
             st.session_state.last_action = "analyze"
-            st.rerun()
+            st.experimental_rerun()
 
         st.markdown("---")
 
-        # Ask Another Question Section
+        # --- Ask Another Question ---
         st.subheader("Ask Another Question")
         question_input = st.text_area("Ask about image / highlighted region:",
                                       height=100,
@@ -272,18 +270,18 @@ with st.sidebar:
             if st.button("Clear ROI", key="clear_roi"):
                 st.session_state.roi_coords = None
                 st.session_state.canvas_drawing = None
-                st.rerun()
+                st.experimental_rerun()
 
         if st.button("Ask AI", key="ask_btn"):
             if st.session_state.question_input.strip():
                 st.session_state.last_action = "ask"
-                st.rerun()
+                st.experimental_rerun()
             else:
                 st.warning("Please enter a question.")
 
         st.markdown("---")
 
-        # Focused Condition Analysis
+        # --- Focused Condition Analysis ---
         st.subheader("Focused Condition Analysis")
         disease_options = [
             "", "Pneumonia", "Lung cancer", "Stroke", "Fracture", "Appendicitis", "Tuberculosis",
@@ -296,24 +294,24 @@ with st.sidebar:
         if st.button("Run Condition Analysis", key="disease_btn"):
             if st.session_state.disease_select:
                 st.session_state.last_action = "disease"
-                st.rerun()
+                st.experimental_rerun()
             else:
                 st.warning("Please select a condition.")
 
         st.markdown("---")
 
-        # Confidence & PDF Section inside an Expander
+        # --- Confidence & PDF Section (in an Expander) ---
         with st.expander("Confidence & PDF", expanded=False):
             if st.button("Estimate AI Confidence", key="confidence_btn"):
                 if st.session_state.history:
                     st.session_state.last_action = "confidence"
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.warning("No analysis/Q&A yet.")
 
             if st.button("Generate PDF Report Data", key="generate_report_data_btn"):
                 st.session_state.last_action = "generate_report_data"
-                st.rerun()
+                st.experimental_rerun()
 
             if st.session_state.get("pdf_report_bytes"):
                 report_filename = f"medivision_report_{st.session_state.session_id}.pdf"
@@ -334,34 +332,34 @@ col1, col2 = st.columns([2, 3])
 
 with col1:
     st.subheader("Image Viewer")
-
-    # Display uploaded image as a preview (if available)
     if st.session_state.display_image:
-        st.image(st.session_state.display_image, caption="Uploaded Image", use_column_width=True)
+        # Display the uploaded image as a preview using use_container_width
+        st.image(st.session_state.display_image, caption="Uploaded Image", use_container_width=True)
+        
+        # Also launch the drawable canvas on the image
         bg_image_pil = st.session_state.display_image
-        # Calculate canvas dimensions based on aspect ratio
         canvas_height = 450
         img_w, img_h = bg_image_pil.width, bg_image_pil.height
         aspect = img_w / img_h if img_h > 0 else 1
         canvas_width = min(int(canvas_height * aspect), 600)
         canvas_height = int(canvas_width / aspect) if aspect > 0 else 400
 
-        st.caption("Click/drag to highlight a Region of Interest (ROI) for further questions.")
-        # Launch drawable canvas
+        st.caption("Click/drag on the image to highlight a Region of Interest (ROI).")
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
             stroke_color="rgba(255, 165, 0, 0.8)",
             background_image=bg_image_pil,
             update_streamlit=True,
+            drawing_mode="rect",
             height=canvas_height,
             width=canvas_width,
-            drawing_mode="rect",
             key="canvas",
+            display_toolbar=True
         )
 
-        # Process drawn ROI
         if canvas_result.json_data is not None and canvas_result.json_data.get("objects"):
+            st.success("ROI drawn! Check the 'Ask Another Question' section.")
             last_rect = canvas_result.json_data["objects"][-1]
             rect_width = max(1, int(last_rect.get("width", 1) * last_rect.get("scaleX", 1)))
             rect_height = max(1, int(last_rect.get("height", 1) * last_rect.get("scaleY", 1)))
@@ -371,8 +369,7 @@ with col1:
                 "width": rect_width,
                 "height": rect_height,
             }
-
-        # Display DICOM metadata if available
+        # Optionally, show DICOM metadata
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("View DICOM Metadata"):
                 meta_cols = st.columns(2)
@@ -498,7 +495,7 @@ if current_action:
 
     elif current_action == "confidence":
         with st.spinner("Estimating confidence..."):
-            # Example: fixed output in percentage style with detailed justification.
+            # Set a fixed confidence report (in percentage style)
             st.session_state.confidence_score = (
                 "**Confidence:** 10/10\n\n"
                 "**Justification:** The image provided is a photograph of a physical chest X-ray film. A careful visual inspection confirms the complete absence of any superimposed highlights, annotations, circles, arrows, or other markings intended to draw attention to a specific region. The determination is based on the clear lack of these specific visual features."
@@ -545,7 +542,7 @@ if current_action:
                     st.error("Failed to generate PDF report data.")
 
     st.session_state.last_action = None
-    st.rerun()
+    st.experimental_rerun()
 
 # ------------------------------------------------------------------------------
 # 8) Footer Removed per earlier requests
