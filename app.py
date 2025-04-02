@@ -263,9 +263,7 @@ with st.sidebar:
                             if isinstance(temp_display_image, Image.Image) and isinstance(temp_processed_image, Image.Image): processing_successful = True; logger.info("DICOM images generated.")
                             else: st.error("Failed to generate images from DICOM."); logger.error("dicom_to_image returned invalid obj.")
                         else: # Handle case where DICOM parsing itself failed
-                           if pydicom is None: st.error("Cannot process DICOM: pydicom library not installed.") # Specific error if library missing
-                           # else: st.error already shown by parse exception handling
-
+                           if pydicom is None: st.error("Cannot process DICOM: pydicom library not installed.")
                     # --- Standard Image Branch ---
                     else:
                         logger.debug("Standard image processing...")
@@ -490,7 +488,9 @@ if current_action:
 
     try: # Execute Actions
         if current_action == "analyze":
-            st.info(f"🔬 Analyzing{roi_str}..."); with st.spinner("AI analyzing..."): res = run_initial_analysis(img_llm) # Pass roi if supported
+            st.info(f"🔬 Analyzing{roi_str}...")
+            with st.spinner("AI analyzing..."):
+                res = run_initial_analysis(img_llm)  # Pass roi if supported
             st.session_state.initial_analysis = res; st.success("Analysis finished.")
         elif current_action == "ask":
             q = st.session_state.question_input_widget.strip(); # Need to get question again here
@@ -533,7 +533,6 @@ if current_action:
                  # Add DICOM meta filtering here if needed
                  if st.session_state.is_dicom and st.session_state.dicom_metadata:
                       logger.info("Report: Including filtered DICOM metadata.")
-                      # Add filtering logic here from previous versions if desired
                       outputs["DICOM Metadata (Filtered)"] = "DICOM Filtering Placeholder"
                  with st.spinner("🎨 Generating PDF..."): pdf_bytes = generate_pdf_report_bytes(session_id, img_final, outputs)
                  if pdf_bytes: st.session_state.pdf_report_bytes = pdf_bytes; st.success("✅ PDF data generated!"); logger.info("PDF gen ok.")
