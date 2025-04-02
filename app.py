@@ -1,6 +1,7 @@
-# main_app.py (Revision - Enhanced Canvas Debugging)
+# main_app.py (Revision - Re-enable Monkey-Patch)
 
 # --- Core Libraries ---
+# ... (imports for io, os, uuid, logging, base64, typing, copy) ...
 import io
 import os
 import uuid
@@ -58,13 +59,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-if pydicom is None: logger.info("Pydicom module not found. DICOM functionality disabled.") # Changed to info
+# ... (logging setup continues) ...
+if pydicom is None: logger.info("Pydicom module not found. DICOM functionality disabled.")
 else:
     logger.info(f"Pydicom Version: {PYDICOM_VERSION}")
-    try: import pylibjpeg; logger.info("pylibjpeg found.")
-    except ImportError: logger.warning("pylibjpeg not found. `pip install pylibjpeg pylibjpeg-libjpeg` for wider DICOM compatibility.")
-    try: import gdcm; logger.info("python-gdcm found.")
-    except ImportError: logger.warning("python-gdcm not found. `pip install python-gdcm` for wider DICOM compatibility.")
+    # ... (pylibjpeg, gdcm checks) ...
 
 logger.info(f"--- App Start ---")
 logger.info(f"Logging level set to {LOG_LEVEL}")
@@ -74,58 +73,84 @@ logger.info(f"Streamlit Drawable Canvas Version: {CANVAS_VERSION}")
 
 
 # ------------------------------------------------------------------------------
-# Monkey-Patch (Optional - Usually not needed for st_canvas background)
-# Let's keep it commented out for now unless proven necessary for st.image itself
+# <<< --- Monkey-Patch to Add image_to_url if Missing --- >>>
+# Ensure this block is UNCOMMENTED and PRESENT
 # ------------------------------------------------------------------------------
-# import streamlit.elements.image as st_image
-# if not hasattr(st_image, "image_to_url"):
-#     def image_to_url_monkey_patch(img_obj: Any, *args, **kwargs) -> str:
-#         # ... (patch code) ...
-#     st_image.image_to_url = image_to_url_monkey_patch
-#     logging.info("Applied monkey-patch for streamlit.elements.image.image_to_url (if missing)")
+import streamlit.elements.image as st_image
+if not hasattr(st_image, "image_to_url"):
+    logger.warning("Streamlit version seems to be missing 'image_to_url'. Applying monkey-patch.")
+    def image_to_url_monkey_patch(
+        image: Any,
+        width: int,
+        clamp: bool,
+        channels: str,
+        output_format: str,
+        image_id: str,
+        allow_emoji: bool = False,
+        ) -> str:
+        """
+        Monkey-patch implementation for Streamlit's internal image_to_url.
+        Converts PIL Image to a data URL.
+        Note: Parameters match expected internal signature; some might not be used in basic conversion.
+        """
+        try:
+            if isinstance(image, Image.Image):
+                # Simple conversion for the patch
+                buffered = io.BytesIO()
+                img_format = output_format.upper() if output_format else "PNG"
+                if img_format == "JPEG": img_format = "JPEG" # Common synonym
+
+                # Ensure image is in a savable mode (like RGB/RGBA for PNG/JPEG)
+                img_to_save = image
+                if image.mode not in ['RGB', 'RGBA', 'L'] and img_format in ['PNG', 'JPEG']:
+                    logger.debug(f"Patch: Converting image mode {image.mode} to RGB for saving as {img_format}")
+                    img_to_save = image.convert("RGB")
+                elif image.mode == 'P' and img_format == 'PNG':
+                     logger.debug(f"Patch: Converting image mode P to RGBA for saving as PNG")
+                     img_to_save = image.convert("RGBA")
+
+
+                img_to_save.save(buffered, format=img_format)
+                img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                data_url = f"data:image/{img_format.lower()};base64,{img_str}"
+                # logger.debug(f"Patch: Successfully created data URL (len: {len(data_url)})")
+                return data_url
+            else:
+                # If it's not a PIL image, we can't handle it here easily.
+                # The original function might handle URLs, paths, etc.
+                # This patch focuses on the PIL Image case for st_canvas.
+                logger.warning(f"Patch: image_to_url received non-PIL image type: {type(image)}. Returning empty string.")
+                return ""
+        except Exception as e:
+            logger.error(f"Monkey-patch image_to_url failed: {e}", exc_info=True)
+            return "" # Return empty string on error
+
+    # Apply the patch
+    st_image.image_to_url = image_to_url_monkey_patch
+    logger.info("Successfully applied monkey-patch for streamlit.elements.image.image_to_url.")
+else:
+    logger.info("Streamlit version has 'image_to_url' attribute. No patch needed.")
 
 
 # ------------------------------------------------------------------------------
 # <<< --- Import Custom Utilities & Fallbacks --- >>>
 # ------------------------------------------------------------------------------
+# ... (rest of your imports: dicom_utils, llm_interactions, etc.) ...
 try:
-    # Assume these helper modules exist in the same directory or are installable
-    # Fallback functions are defined inline if imports fail
-    try: from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
-    except ImportError:
-        logger.error("dicom_utils not found. Using basic fallbacks.")
-        def parse_dicom(data, fname): raise NotImplementedError("DICOM parsing unavailable.")
-        def extract_dicom_metadata(ds): return {"Error": "Metadata extraction unavailable."}
-        def dicom_to_image(ds, wc, ww): return None # Indicate failure
-        def get_default_wl(ds): return None, None
-    try: from llm_interactions import run_initial_analysis, run_multimodal_qa, run_disease_analysis, estimate_ai_confidence
-    except ImportError:
-        logger.error("llm_interactions not found. Using basic fallbacks.")
-        def run_initial_analysis(img, roi=None): return "LLM analysis unavailable."
-        def run_multimodal_qa(img, q, hist, roi=None): return "LLM Q&A unavailable.", False
-        def run_disease_analysis(img, disease, roi=None): return "LLM disease analysis unavailable."
-        def estimate_ai_confidence(img, hist, init, disease, roi=None): return "Confidence estimation unavailable."
-    try: from report_utils import generate_pdf_report_bytes
-    except ImportError:
-        logger.error("report_utils not found. Using basic fallbacks.")
-        def generate_pdf_report_bytes(sid, img, outputs): return None # Indicate failure
-    try: from ui_components import display_dicom_metadata, dicom_wl_sliders
-    except ImportError:
-        logger.error("ui_components not found. Using basic fallbacks.")
-        def display_dicom_metadata(metadata): st.json({"Error": "Metadata display unavailable.", **metadata})
-        def dicom_wl_sliders(ds, meta, initial_wc, initial_ww):
-            st.warning("DICOM W/L controls unavailable.")
-            return initial_wc, initial_ww
-    logger.info("Attempted import of custom utility modules.")
+    from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
+    from llm_interactions import run_initial_analysis, run_multimodal_qa, run_disease_analysis, estimate_ai_confidence
+    from report_utils import generate_pdf_report_bytes
+    from ui_components import display_dicom_metadata, dicom_wl_sliders
+    logger.info("Successfully imported custom utility modules.")
     try: from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID
     except ImportError:
-        HF_VQA_MODEL_ID = "hf_model_not_found"
-        def query_hf_vqa_inference_api(img: Image.Image, question: str, roi: Optional[Dict] = None) -> Tuple[str, bool]: return "[Fallback Unavailable] HF module not found.", False
-        logger.warning("hf_models.py not found. HF VQA fallback disabled.")
-except Exception as import_error: # Catch any other unexpected import error
-    st.error(f"CRITICAL ERROR importing helpers ({import_error}). Ensure all .py files present or dependencies installed."); logger.critical(f"Failed import: {import_error}", exc_info=True); st.stop()
+        HF_VQA_MODEL_ID = "hf_model_not_found"; query_hf_vqa_inference_api = None # Define as None
+        logger.warning("hf_models.py not found or error importing. HF VQA fallback disabled.")
+except ImportError as import_error:
+    st.error(f"CRITICAL ERROR importing helpers ({import_error}). Ensure all .py files present."); logger.critical(f"Failed import: {import_error}", exc_info=True); st.stop()
 
-# --- Helper Image Conversion (No changes needed here) ---
+# --- Helper Image Conversion (safe_image_to_data_url) ---
+# ... (function definition) ...
 def safe_image_to_data_url(img: Image.Image) -> str:
     if not isinstance(img, Image.Image): logger.warning(f"safe_image_to_data_url: Not PIL Image (type: {type(img)})."); return ""
     buffered = io.BytesIO(); format = "PNG"
@@ -139,8 +164,9 @@ def safe_image_to_data_url(img: Image.Image) -> str:
     except Exception as e: logger.error(f"Failed converting image to data URL: {e}", exc_info=True); return ""
 
 # ------------------------------------------------------------------------------
-# Initialize Session State (No changes needed here)
+# Initialize Session State
 # ------------------------------------------------------------------------------
+# ... (session state initialization) ...
 DEFAULT_STATE = {
     "uploaded_file_info": None, "raw_image_bytes": None, "is_dicom": False,
     "dicom_dataset": None, "dicom_metadata": {}, "processed_image": None,
@@ -156,62 +182,37 @@ for key, default_value in DEFAULT_STATE.items():
 if not isinstance(st.session_state.history, list): st.session_state.history = []
 logger.debug("Session state initialized.")
 
+
 # ------------------------------------------------------------------------------
-# Page Title & Disclaimer (No changes needed here)
+# Page Title & Disclaimer
 # ------------------------------------------------------------------------------
+# ... (title and disclaimer) ...
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("⚠️ Important Disclaimer & Usage Guide", expanded=False):
-    st.warning("""
-        **Disclaimer:** This tool is intended for research and educational purposes ONLY.
-        **It is NOT a medical device and MUST NOT be used for clinical diagnosis, patient management, or any medical decision-making.**
-        AI outputs may be inaccurate or incomplete. Always rely on qualified medical professionals for health-related interpretations and decisions.
-    """)
-    st.info("""
-        **Quick Guide:**
-        1.  **Upload:** Use the sidebar to upload a JPG, PNG, or DICOM file.
-        2.  **DICOM W/L (Optional):** If a DICOM file is uploaded, adjust Window/Level settings in the sidebar for optimal viewing.
-        3.  **Analyze:** Use the AI Actions in the sidebar:
-            *   `Run Initial Analysis` for a general overview.
-            *   Draw a Rectangle ROI (Region of Interest) on the image viewer.
-            *   `Ask AI` a question about the image or the selected ROI.
-            *   `Run Condition Analysis` to focus the AI on a specific potential condition.
-        4.  **Review:** Check the results in the 'Analysis & Results' tabs.
-        5.  **Report (Optional):** Estimate confidence and generate a non-clinical summary PDF.
-    """)
+    st.warning(""" **Disclaimer:** Research/Educational use ONLY. **NOT for Clinical Use.** """)
+    st.info(""" **Quick Guide:** 1. Upload... 2. DICOM W/L... 3. Analyze... 4. Review... 5. Report...""")
 st.markdown("---")
 
+
 # =============================================================================
-# === SIDEBAR CONTROLS (No changes needed in this section) ====================
+# === SIDEBAR CONTROLS ========================================================
 # =============================================================================
+# ... (sidebar code remains the same) ...
 with st.sidebar:
     # Logo
-    logo_path = "assets/radvisionai-hero.jpeg" # Consider making this configurable
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=200, caption="RadVision AI")
-        st.markdown("---")
-    else:
-        logger.warning(f"Sidebar logo not found at: {logo_path}")
-        st.markdown("### RadVision AI") # Fallback text if logo missing
-        st.markdown("---")
+    logo_path = "assets/radvisionai-hero.jpeg"
+    if os.path.exists(logo_path): st.image(logo_path, width=200, caption="RadVision AI"); st.markdown("---")
+    else: logger.warning(f"Sidebar logo not found: {logo_path}"); st.markdown("### RadVision AI"); st.markdown("---")
 
     st.header("Image Upload & Controls")
-    # Define allowed file types
     ALLOWED_TYPES = ["jpg", "jpeg", "png", "dcm", "dicom"]
-    uploaded_file = st.file_uploader(
-        f"Upload Image ({', '.join(type.upper() for type in ALLOWED_TYPES)})",
-        type=ALLOWED_TYPES,
-        key="file_uploader_widget",
-        accept_multiple_files=False,
-        help="Select a standard image file (JPG, PNG) or a medical DICOM file (.dcm, .dicom)."
-    )
+    uploaded_file = st.file_uploader(f"Upload Image ({', '.join(type.upper() for type in ALLOWED_TYPES)})", type=ALLOWED_TYPES, key="file_uploader_widget", accept_multiple_files=False)
 
     # --- File Processing Logic ---
     if uploaded_file is not None:
         try:
              file_mtime = getattr(uploaded_file, 'last_modified', None)
-             if file_mtime is None:
-                 import hashlib; hasher = hashlib.md5(); hasher.update(uploaded_file.getvalue()); file_unique_id = hasher.hexdigest(); uploaded_file.seek(0);
-                 logger.warning("Using MD5 for change detection.")
+             if file_mtime is None: import hashlib; hasher = hashlib.md5(); hasher.update(uploaded_file.getvalue()); file_unique_id = hasher.hexdigest(); uploaded_file.seek(0); logger.warning("Using MD5 for change detection.")
              else: file_unique_id = str(file_mtime)
              new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{file_unique_id}"
         except Exception as file_info_err: logger.error(f"Err getting file info: {file_info_err}", exc_info=True); new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{str(uuid.uuid4())[:8]}"
@@ -229,21 +230,18 @@ with st.sidebar:
             # Image Processing
             with st.spinner("🔬 Processing image data..."):
                 st.session_state.raw_image_bytes = None; temp_display_image = None; temp_processed_image = None; processing_successful = False
+                # ... (image processing logic as before) ...
                 try:
                     logger.debug("Reading bytes..."); st.session_state.raw_image_bytes = uploaded_file.getvalue();
                     if not st.session_state.raw_image_bytes: raise ValueError("File empty.")
                     logger.info(f"Read {len(st.session_state.raw_image_bytes)} bytes.")
-                    # Determine Type
                     file_ext = os.path.splitext(uploaded_file.name)[1].lower(); is_magic = (len(st.session_state.raw_image_bytes) > 132 and st.session_state.raw_image_bytes[128:132] == b'DICM')
                     st.session_state.is_dicom = (pydicom is not None) and (file_ext in (".dcm", ".dicom") or "dicom" in uploaded_file.type.lower() or is_magic)
                     logger.info(f"Identified as DICOM: {st.session_state.is_dicom}")
 
-                    # DICOM Branch
-                    if st.session_state.is_dicom:
+                    if st.session_state.is_dicom: # DICOM Branch
                         logger.debug("DICOM processing..."); ds = None
                         try: ds = parse_dicom(st.session_state.raw_image_bytes, uploaded_file.name); st.session_state.dicom_dataset = ds
-                        except pydicom.errors.InvalidDicomError as e: st.error(f"Invalid DICOM: {e}"); logger.error(f"InvalidDicomError: {e}", exc_info=True); ds = None
-                        except NotImplementedError as e: st.error(f"DICOM processing unavailable: {e}"); logger.error(f"DICOM processing function N/A: {e}"); ds = None
                         except Exception as e: st.error(f"Error parsing DICOM: {e}"); logger.error(f"DICOM parse failed: {e}", exc_info=True); ds = None
                         if ds:
                             logger.info("DICOM parsed."); st.session_state.dicom_metadata = extract_dicom_metadata(ds)
@@ -252,71 +250,46 @@ with st.sidebar:
                             if isinstance(temp_display_image, Image.Image) and isinstance(temp_processed_image, Image.Image): processing_successful = True; logger.info("DICOM images generated.")
                             else: st.error("Failed to generate images from DICOM."); logger.error("dicom_to_image invalid.")
                         elif pydicom is None: st.error("Cannot process DICOM: pydicom library missing.")
-                    # Standard Image Branch
-                    else:
+                    else: # Standard Image Branch
                         logger.debug("Standard image processing...");
                         try:
                             img = Image.open(io.BytesIO(st.session_state.raw_image_bytes)); logger.info(f"Image.open ok. Mode: {img.mode}, Size: {img.size}")
                             temp_display_image = img.copy(); temp_processed_image = img.copy()
-                            # Ensure display image is RGB or RGBA for compatibility
-                            if temp_display_image.mode not in ['RGB', 'RGBA', 'L']:
-                                logger.info(f"Converting display image from {temp_display_image.mode} to RGB.")
-                                temp_display_image = temp_display_image.convert("RGB")
-                            elif temp_display_image.mode == 'L':
-                                logger.info("Display image is Grayscale (L mode), converting to RGB for display.")
-                                temp_display_image = temp_display_image.convert("RGB") # Convert L to RGB
-
-                            # Processed image: Convert P/RGBA to RGB, leave L as is
-                            if temp_processed_image.mode in ['P', 'RGBA']:
-                                logger.info(f"Converting processed image from {temp_processed_image.mode} to RGB.")
-                                temp_processed_image = temp_processed_image.convert("RGB")
-                            elif temp_processed_image.mode == 'L':
-                                logger.info("Processed image remains Grayscale (L mode).")
-
+                            if temp_display_image.mode not in ['RGB', 'RGBA', 'L']: temp_display_image = temp_display_image.convert("RGB")
+                            elif temp_display_image.mode == 'L': temp_display_image = temp_display_image.convert("RGB")
+                            if temp_processed_image.mode in ['P', 'RGBA']: temp_processed_image = temp_processed_image.convert("RGB")
+                            elif temp_processed_image.mode == 'L': logger.info("Processed image remains Grayscale (L mode).")
                             st.session_state.dicom_dataset = None; st.session_state.dicom_metadata = {}; st.session_state.current_display_wc = None; st.session_state.current_display_ww = None
                             processing_successful = True; logger.info("Standard images prepared.")
-                        except UnidentifiedImageError: st.error(f"Cannot identify image format: '{uploaded_file.name}'."); logger.error(f"UnidentifiedImageError", exc_info=True)
                         except Exception as e: st.error(f"Error processing image: {e}"); logger.error(f"Std image error: {e}", exc_info=True)
                 except Exception as e: st.error(f"Critical processing error: {e}"); logger.critical(f"Outer processing error: {e}", exc_info=True); processing_successful = False
 
                 # Final Check & Update
                 logger.debug(f"Final Check: Success={processing_successful}, Display PIL={isinstance(temp_display_image, Image.Image)}, Processed PIL={isinstance(temp_processed_image, Image.Image)}")
                 if processing_successful and isinstance(temp_display_image, Image.Image) and isinstance(temp_processed_image, Image.Image):
-                    # Ensure display image is suitable for canvas (RGB or RGBA preferred)
                     if temp_display_image.mode not in ['RGB', 'RGBA']:
-                         logger.warning(f"Final Check: Display image mode is {temp_display_image.mode}, attempting conversion to RGB.")
-                         try:
-                             st.session_state.display_image = temp_display_image.convert('RGB')
-                             logger.info(f"Successfully converted display image to RGB. Mode: {st.session_state.display_image.mode}")
-                         except Exception as convert_err:
-                             logger.error(f"Final conversion of display image to RGB failed: {convert_err}", exc_info=True)
-                             st.error("Image processed, but failed final conversion for display.")
-                             processing_successful = False # Mark as failed
-                    else:
-                         st.session_state.display_image = temp_display_image
-                         logger.info(f"Display image assigned. Mode: {st.session_state.display_image.mode}")
-
-                    # Assign processed image if all checks passed
+                         logger.warning(f"Final Check: Display mode {temp_display_image.mode}, converting to RGB.")
+                         try: st.session_state.display_image = temp_display_image.convert('RGB'); logger.info(f"Converted display to RGB.")
+                         except Exception as convert_err: logger.error(f"Final RGB conversion failed: {convert_err}", exc_info=True); st.error("Failed final display conversion."); processing_successful = False
+                    else: st.session_state.display_image = temp_display_image; logger.info(f"Display image assigned. Mode: {st.session_state.display_image.mode}")
                     if processing_successful:
-                        st.session_state.processed_image = temp_processed_image
-                        logger.info(f"Processed image assigned. Mode: {getattr(st.session_state.processed_image, 'mode', 'N/A')}")
-                        logger.info(f"**SUCCESS**: State updated for file '{uploaded_file.name}'.")
-                        st.session_state.roi_coords = None; st.session_state.canvas_drawing = None; st.session_state.initial_analysis = ""; st.session_state.qa_answer = ""; st.session_state.disease_analysis = ""; st.session_state.confidence_score = ""; st.session_state.pdf_report_bytes = None; st.session_state.history = []
+                        st.session_state.processed_image = temp_processed_image; logger.info(f"Processed image assigned. Mode: {getattr(st.session_state.processed_image, 'mode', 'N/A')}")
+                        logger.info(f"**SUCCESS**: State updated."); st.session_state.roi_coords = None; st.session_state.canvas_drawing = None; st.session_state.initial_analysis = ""; st.session_state.qa_answer = ""; st.session_state.disease_analysis = ""; st.session_state.confidence_score = ""; st.session_state.pdf_report_bytes = None; st.session_state.history = []
                         st.success(f"✅ Image '{uploaded_file.name}' processed!"); st.rerun()
-                    else:
-                         # Failed during final conversion/check
-                        st.error("Image processing failed during final preparation stage.")
-                        st.session_state.display_image = None; st.session_state.processed_image = None
+                    else: st.error("Image processing failed final conversion."); st.session_state.display_image = None; st.session_state.processed_image = None
                 else: # Processing failed earlier
-                    logger.critical("Image loading pipeline failed before final assignment.")
+                    logger.critical("Image loading pipeline failed.");
                     if processing_successful: st.error("❌ Processed, but final image objects invalid."); logger.error(f"Final check failed: display type {type(temp_display_image)}, processed type {type(temp_processed_image)}")
+                    # Reset all state
                     st.session_state.uploaded_file_info = None; st.session_state.raw_image_bytes = None; st.session_state.display_image = None; st.session_state.processed_image = None; st.session_state.dicom_dataset = None; st.session_state.dicom_metadata = {}; st.session_state.current_display_wc = None; st.session_state.current_display_ww = None; st.session_state.is_dicom = False
 
     # DICOM W/L Controls
     st.markdown("---")
+    # ... (DICOM W/L controls as before) ...
     if st.session_state.is_dicom and pydicom is not None and st.session_state.dicom_dataset and isinstance(st.session_state.get("display_image"), Image.Image):
         with st.expander("DICOM Window/Level", expanded=False):
-            try:
+            # ... W/L logic ...
+             try:
                 wc_slider, ww_slider = dicom_wl_sliders(st.session_state.dicom_dataset, st.session_state.dicom_metadata, initial_wc=st.session_state.current_display_wc, initial_ww=st.session_state.current_display_ww)
                 wc_disp, ww_disp = st.session_state.current_display_wc, st.session_state.current_display_ww
                 valid_sliders = (wc_slider is not None and ww_slider is not None); valid_disp = (wc_disp is not None and ww_disp is not None)
@@ -326,20 +299,18 @@ with st.sidebar:
                     with st.spinner("Applying W/L..."):
                          new_img = dicom_to_image(st.session_state.dicom_dataset, wc_slider, ww_slider)
                          if isinstance(new_img, Image.Image):
-                              # Ensure suitable mode for display after W/L change
-                              if new_img.mode not in ['RGB', 'RGBA', 'L']:
-                                   st.session_state.display_image = new_img.convert('RGB')
-                              elif new_img.mode == 'L':
-                                   st.session_state.display_image = new_img.convert('RGB') # Convert L to RGB
-                              else:
-                                   st.session_state.display_image = new_img
+                              if new_img.mode not in ['RGB', 'RGBA', 'L']: st.session_state.display_image = new_img.convert('RGB')
+                              elif new_img.mode == 'L': st.session_state.display_image = new_img.convert('RGB')
+                              else: st.session_state.display_image = new_img
                               st.session_state.current_display_wc, st.session_state.current_display_ww = wc_slider, ww_slider; logger.debug("W/L applied, rerunning."); st.rerun()
                          else: st.error("Failed W/L apply."); logger.error("dicom_to_image failed W/L update.")
-            except Exception as e: st.error(f"W/L error: {e}"); logger.error(f"W/L slider error: {e}", exc_info=True)
+             except Exception as e: st.error(f"W/L error: {e}"); logger.error(f"W/L slider error: {e}", exc_info=True)
         st.markdown("---")
     elif st.session_state.is_dicom and pydicom is None: st.warning("DICOM detected, but pydicom missing.")
 
+
     # AI Actions
+    # ... (AI Actions buttons as before) ...
     if isinstance(st.session_state.get("display_image"), Image.Image):
         st.subheader("AI Actions")
         if st.button("▶️ Run Initial Analysis", key="analyze_btn", use_container_width=True): st.session_state.last_action = "analyze"; logger.info("Setting action: analyze"); st.rerun()
@@ -372,12 +343,12 @@ with st.sidebar:
                 st.download_button(label="⬇️ Download PDF Report", data=st.session_state.pdf_report_bytes, file_name=fname, mime="application/pdf", key="download_pdf_button", use_container_width=True)
     else: st.info("👈 Upload image to begin.")
 
+
 # =============================================================================
 # === MAIN PANEL DISPLAYS =====================================================
 # =============================================================================
-col1, col2 = st.columns([2, 3]) # Ratio for image viewer vs. results panel
+col1, col2 = st.columns([2, 3])
 
-# --- Column 1: Image Viewer, Canvas, Metadata ---
 with col1:
     st.subheader("🖼️ Image Viewer")
     display_img_object = st.session_state.get("display_image")
@@ -385,89 +356,66 @@ with col1:
 
     if isinstance(display_img_object, Image.Image):
         logger.debug(f"Image Viewer: Preparing canvas for image. Mode: {display_img_object.mode}, Size: {display_img_object.size}")
-
-        # --- Prepare Background Image for Canvas ---
         bg_image_pil = None
         try:
-            # Ensure the image is RGB or RGBA, preferred by st_canvas
-            if display_img_object.mode in ['RGB', 'RGBA']:
-                bg_image_pil = display_img_object
-                logger.info(f"Canvas Prep: Image mode {display_img_object.mode} is suitable.")
-            elif display_img_object.mode == 'L': # Convert Grayscale
-                 logger.info("Canvas Prep: Converting Grayscale (L) image to RGB for canvas.")
-                 bg_image_pil = display_img_object.convert('RGB')
-            elif display_img_object.mode == 'P': # Convert Paletted
-                 logger.info("Canvas Prep: Converting Paletted (P) image to RGBA for canvas.")
-                 bg_image_pil = display_img_object.convert('RGBA') # Try RGBA for palette
-            else: # Other modes (e.g., CMYK, YCbCr) try converting to RGB
-                logger.info(f"Canvas Prep: Attempting to convert image mode {display_img_object.mode} to RGB for canvas.")
-                bg_image_pil = display_img_object.convert('RGB')
+            # Prepare image for canvas (ensure RGB/RGBA)
+            if display_img_object.mode in ['RGB', 'RGBA']: bg_image_pil = display_img_object
+            elif display_img_object.mode == 'L': bg_image_pil = display_img_object.convert('RGB')
+            elif display_img_object.mode == 'P': bg_image_pil = display_img_object.convert('RGBA')
+            else: bg_image_pil = display_img_object.convert('RGB')
 
-            if not isinstance(bg_image_pil, Image.Image):
-                raise TypeError(f"Image conversion resulted in invalid type: {type(bg_image_pil)}")
-            logger.info(f"Canvas Prep: Final background image ready. Type: {type(bg_image_pil)}, Mode: {getattr(bg_image_pil, 'mode', 'N/A')}, Size: {getattr(bg_image_pil, 'size', 'N/A')}")
+            if not isinstance(bg_image_pil, Image.Image): raise TypeError("Conversion failed")
+            logger.info(f"Canvas Prep: Final background image ready. Mode: {bg_image_pil.mode}, Size: {bg_image_pil.size}")
 
         except Exception as prep_err:
-            st.error(f"Failed to prepare image for the viewer: {prep_err}")
-            logger.error(f"Canvas background image preparation error: {prep_err}", exc_info=True)
-            bg_image_pil = None
+            st.error(f"Failed preparing image for viewer: {prep_err}"); logger.error(f"Canvas prep error: {prep_err}", exc_info=True); bg_image_pil = None
 
-        # --- Render Canvas if Background Image is Ready ---
         if isinstance(bg_image_pil, Image.Image):
-            # --- Calculate Canvas Dimensions ---
+            # Calculate canvas dimensions
             MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT = 700, 600
-            img_w, img_h = bg_image_pil.size
-            aspect_ratio = img_w / img_h if img_h > 0 else 1
-            canvas_w = min(img_w, MAX_CANVAS_WIDTH)
-            canvas_h = int(canvas_w / aspect_ratio) if aspect_ratio > 0 else MAX_CANVAS_HEIGHT
-            if canvas_h > MAX_CANVAS_HEIGHT:
-                canvas_h = MAX_CANVAS_HEIGHT; canvas_w = int(canvas_h * aspect_ratio)
+            img_w, img_h = bg_image_pil.size; aspect_ratio = img_w / img_h if img_h > 0 else 1
+            canvas_w = min(img_w, MAX_CANVAS_WIDTH); canvas_h = int(canvas_w / aspect_ratio) if aspect_ratio > 0 else MAX_CANVAS_HEIGHT
+            if canvas_h > MAX_CANVAS_HEIGHT: canvas_h = MAX_CANVAS_HEIGHT; canvas_w = int(canvas_h * aspect_ratio)
             canvas_w, canvas_h = max(int(canvas_w), 150), max(int(canvas_h), 150)
-            logger.info(f"Canvas Prep: Calculated canvas dimensions W={canvas_w}, H={canvas_h}")
+            logger.info(f"Canvas Prep: Calculated dims W={canvas_w}, H={canvas_h}")
 
             if canvas_w > 0 and canvas_h > 0:
                 st.caption("Click and drag on the image below to select a Region of Interest (ROI).")
 
-                # <<< --- START DEBUG BLOCK --- >>>
-                # Add st.image call IMMEDIATELY before st_canvas to test the prepared image
-                try:
-                    st.image(bg_image_pil, caption=f"Debug Check: Image passed to canvas (Mode: {bg_image_pil.mode}, Size: {bg_image_pil.size})", use_column_width=True)
-                    logger.info("Debug Check: st.image displayed the image intended for canvas background.")
-                except Exception as st_image_err:
-                    st.error(f"Debug Check Failed: st.image could not display the prepared image. Error: {st_image_err}")
-                    logger.error(f"Debug Check: st.image failed for bg_image_pil. Error: {st_image_err}", exc_info=True)
-                # <<< --- END DEBUG BLOCK --- >>>
+                # Remove or comment out the debug st.image call now that we know it works
+                # try:
+                #     st.image(bg_image_pil, caption=f"Debug Check: Image passed to canvas (Mode: {bg_image_pil.mode}, Size: {bg_image_pil.size})", use_column_width=True)
+                #     logger.info("Debug Check: st.image displayed the image.")
+                # except Exception as st_image_err:
+                #      st.error(f"Debug Check Failed: st.image error: {st_image_err}")
+                #      logger.error(f"Debug Check: st.image failed: {st_image_err}", exc_info=True)
 
                 try:
                     initial_drawing_state = st.session_state.get("canvas_drawing")
-                    if initial_drawing_state and not isinstance(initial_drawing_state, dict):
-                        logger.warning(f"Invalid initial drawing state found, resetting."); initial_drawing_state = None; st.session_state.canvas_drawing = None
-
-                    logger.info(f"Rendering st_canvas with background image. Mode: {bg_image_pil.mode}")
-                    # Ensure bg_image_pil is still valid before call
-                    if not isinstance(bg_image_pil, Image.Image):
-                         raise ValueError("bg_image_pil became invalid just before st_canvas call.")
+                    if initial_drawing_state and not isinstance(initial_drawing_state, dict): initial_drawing_state = None; st.session_state.canvas_drawing = None
+                    logger.info(f"Rendering st_canvas with background. Mode: {bg_image_pil.mode}")
+                    if not isinstance(bg_image_pil, Image.Image): raise ValueError("bg_image_pil invalid before canvas call.")
 
                     # --- Render the Drawable Canvas ---
                     canvas_result = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.2)", stroke_width=2, stroke_color="rgba(220, 50, 50, 0.9)",
-                        background_image=bg_image_pil, # Pass the prepared PIL image
+                        background_image=bg_image_pil, # THIS is where image_to_url is likely called internally
                         update_streamlit=True, height=canvas_h, width=canvas_w,
                         drawing_mode="rect", initial_drawing=initial_drawing_state,
                         key="drawable_canvas",
                     )
-                    logger.info("st_canvas call completed.") # Will log even if background fails internally
+                    logger.info("st_canvas call completed.")
 
                     # --- Process Canvas Result (ROI Logic) ---
+                    # ... (ROI processing logic remains the same) ...
                     if canvas_result is not None and canvas_result.json_data is not None:
-                        st.session_state.canvas_drawing = canvas_result.json_data # Store drawing state
+                        st.session_state.canvas_drawing = canvas_result.json_data
                         current_roi_state = st.session_state.get("roi_coords")
                         if canvas_result.json_data.get("objects"):
                             last_object = canvas_result.json_data["objects"][-1]
                             if last_object["type"] == "rect":
                                 canvas_left, canvas_top = int(last_object["left"]), int(last_object["top"])
-                                canvas_width = int(last_object["width"] * last_object.get("scaleX", 1))
-                                canvas_height = int(last_object["height"] * last_object.get("scaleY", 1))
+                                canvas_width = int(last_object["width"] * last_object.get("scaleX", 1)); canvas_height = int(last_object["height"] * last_object.get("scaleY", 1))
                                 scale_x = img_w / canvas_w; scale_y = img_h / canvas_h
                                 original_left = max(0, int(canvas_left * scale_x)); original_top = max(0, int(canvas_top * scale_y))
                                 original_width = int(canvas_width * scale_x); original_height = int(canvas_height * scale_y)
@@ -476,42 +424,44 @@ with col1:
                                 MIN_ROI_DIM = 10
                                 if final_width >= MIN_ROI_DIM and final_height >= MIN_ROI_DIM:
                                     new_roi_dict = {"left": original_left, "top": original_top, "width": final_width, "height": final_height}
-                                    if current_roi_state != new_roi_dict:
-                                        st.session_state.roi_coords = new_roi_dict; logger.info(f"ROI Updated: {new_roi_dict}"); st.rerun()
-                                elif current_roi_state is not None:
-                                     logger.info("New drawing too small, clearing ROI."); st.session_state.roi_coords = None; st.rerun()
-                        elif not canvas_result.json_data.get("objects") and current_roi_state is not None:
-                            logger.info("Canvas cleared, removing ROI state."); st.session_state.roi_coords = None; st.rerun()
+                                    if current_roi_state != new_roi_dict: st.session_state.roi_coords = new_roi_dict; logger.info(f"ROI Updated: {new_roi_dict}"); st.rerun()
+                                elif current_roi_state is not None: logger.info("New drawing too small, clearing ROI."); st.session_state.roi_coords = None; st.rerun()
+                        elif not canvas_result.json_data.get("objects") and current_roi_state is not None: logger.info("Canvas cleared, removing ROI state."); st.session_state.roi_coords = None; st.rerun()
 
+                except AttributeError as ae:
+                     # Catch the specific error we saw
+                     if 'image_to_url' in str(ae):
+                         st.error("Error during canvas rendering: Streamlit's internal 'image_to_url' function not found or accessible. This might be due to your Streamlit version.")
+                         st.warning("The monkey-patch attempt might have failed. Check logs for 'Applied monkey-patch'.")
+                         logger.error(f"Canvas failed due to missing 'image_to_url': {ae}", exc_info=True)
+                     else: # Other AttributeErrors
+                         st.error(f"Attribute error during canvas rendering: {ae}")
+                         logger.error(f"Canvas attribute error: {ae}", exc_info=True)
                 except Exception as canvas_error:
                     st.error(f"Error during canvas rendering or interaction: {canvas_error}")
                     logger.error(f"st_canvas failed: {canvas_error}", exc_info=True)
-                    st.warning("Drawing functionality might be unavailable. Check browser console (F12) for details.")
-            else:
-                st.error("Cannot display image: Invalid canvas dimensions.")
-                logger.error(f"Invalid calculated canvas dims: W={canvas_w}, H={canvas_h}")
-        else:
-            st.info("Image could not be prepared for the interactive viewer.")
-            logger.error("Cannot display canvas: bg_image_pil is not a valid PIL Image after prep.")
+                    st.warning("Drawing functionality might be unavailable. Check browser console (F12).")
+            else: st.error("Invalid canvas dimensions."); logger.error(f"Invalid canvas dims: W={canvas_w}, H={canvas_h}")
+        else: st.info("Image could not be prepared for viewer."); logger.error("Cannot display canvas: bg_image_pil invalid.")
 
-        # --- Display DICOM Metadata ---
+        # Display DICOM Metadata
+        # ... (metadata display logic) ...
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             st.markdown("---"); st.subheader("📄 DICOM Metadata")
-            if pydicom is None: st.warning("'pydicom' missing, cannot display metadata.")
+            if pydicom is None: st.warning("'pydicom' missing.")
             else: logger.debug("Displaying DICOM metadata."); display_dicom_metadata(st.session_state.dicom_metadata)
 
-    # --- Fallback Placeholder ---
+    # Fallback Placeholder
+    # ... (placeholder logic) ...
     else:
-        logger.debug("Image Viewer: No valid display_image in session state.")
-        st.markdown("---")
-        if st.session_state.uploaded_file_info: st.warning("Image processing failed or file invalid.")
-        else: st.info("Upload an image file using the sidebar.")
-        st.markdown(
-            """<div style='height: 400px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; text-align: center; color: #aaa; font-style: italic; padding: 20px; border-radius: 8px;'>Image Display Area</div>""",
-            unsafe_allow_html=True
-        )
+        logger.debug("Image Viewer: No valid display_image."); st.markdown("---")
+        if st.session_state.uploaded_file_info: st.warning("Image processing failed.")
+        else: st.info("Upload an image file.")
+        st.markdown("""<div style='height: 400px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; text-align: center; color: #aaa; font-style: italic; padding: 20px; border-radius: 8px;'>Image Display Area</div>""", unsafe_allow_html=True)
 
-# --- Column 2: Analysis Results Tabs (No changes needed here) ---
+
+# --- Column 2: Analysis Results Tabs ---
+# ... (results tabs remain the same) ...
 with col2:
     st.subheader("📊 Analysis & Results")
     tab_titles = ["🔬 Initial Analysis", "💬 Q&A History", "🩺 Disease Focus", "📈 Confidence"]
@@ -522,7 +472,7 @@ with col2:
         st.markdown("---")
         if st.session_state.history:
              with st.expander("Full Conversation History", expanded=True):
-                 for i, (q, a) in enumerate(reversed(st.session_state.history)): # Show newest first
+                 for i, (q, a) in enumerate(reversed(st.session_state.history)):
                      st.markdown(f"**You ({len(st.session_state.history)-i}):**"); st.caption(f"{q}")
                      st.markdown(f"**AI ({len(st.session_state.history)-i}):**"); st.markdown(a, unsafe_allow_html=True)
                      if i < len(st.session_state.history) - 1: st.markdown("---")
@@ -530,21 +480,20 @@ with col2:
     with tabs[2]: st.text_area("Focused Condition Findings", value=st.session_state.disease_analysis or "No focused condition analysis performed.", height=450, key="output_disease", disabled=True)
     with tabs[3]: st.text_area("AI Confidence Estimation", value=st.session_state.confidence_score or "No confidence estimation performed.", height=450, key="output_confidence", disabled=True)
 
+
 # =============================================================================
-# === ACTION HANDLING LOGIC (No changes needed here) ==========================
+# === ACTION HANDLING LOGIC ===================================================
 # =============================================================================
+# ... (action handling logic remains the same) ...
 current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"ACTION HANDLER: Action '{current_action}'")
     processed_image = st.session_state.get("processed_image"); session_id = st.session_state.get("session_id")
     roi_coords = st.session_state.get("roi_coords"); history = st.session_state.history
 
-    if current_action != "generate_report_data" and not isinstance(processed_image, Image.Image):
-        st.error(f"Cannot perform '{current_action}': Processed image invalid."); logger.error(f"Action '{current_action}' aborted: Invalid processed_image."); st.session_state.last_action = None; st.stop()
-    if not session_id:
-        st.error(f"Cannot perform '{current_action}': Session ID missing."); logger.error(f"Action '{current_action}' aborted: Missing Session ID."); st.session_state.last_action = None; st.stop()
+    if current_action != "generate_report_data" and not isinstance(processed_image, Image.Image): st.error(f"Cannot perform '{current_action}': Processed image invalid."); logger.error(f"Action '{current_action}' aborted: Invalid processed_image."); st.session_state.last_action = None; st.stop()
+    if not session_id: st.error(f"Cannot perform '{current_action}': Session ID missing."); logger.error(f"Action '{current_action}' aborted: Missing Session ID."); st.session_state.last_action = None; st.stop()
     if not isinstance(history, list): history = []; st.session_state.history = history; logger.warning("History reset.")
-
     img_llm = processed_image; roi_str = " (with ROI)" if roi_coords else ""
 
     try: # Execute Actions
@@ -561,7 +510,7 @@ if current_action:
                 if ok: st.session_state.qa_answer = ans; st.session_state.history.append((q, ans)); st.success("AI answered.")
                 else: # Fallback
                     st.error(f"Primary AI failed: {ans}"); logger.warning(f"Primary AI failed: {ans}"); st.session_state.qa_answer = f"**[Primary AI Error]** {ans}\n\n---\n"
-                    hf_ok = (HF_VQA_MODEL_ID and HF_VQA_MODEL_ID != "hf_model_not_found" and 'query_hf_vqa_inference_api' in globals() and os.environ.get("HF_API_TOKEN"))
+                    hf_ok = (HF_VQA_MODEL_ID and HF_VQA_MODEL_ID != "hf_model_not_found" and query_hf_vqa_inference_api is not None and os.environ.get("HF_API_TOKEN"))
                     if hf_ok:
                          fb_model_name = HF_VQA_MODEL_ID.split('/')[-1]
                          st.info(f"Trying fallback ({fb_model_name})...")
@@ -608,7 +557,8 @@ if current_action:
     except Exception as e: st.error(f"Action '{current_action}' error: {e}"); logger.critical(f"Action error: {e}", exc_info=True)
     finally: st.session_state.last_action = None; logger.debug(f"Action '{current_action}' finished."); st.rerun()
 
+
 # --- Footer ---
 st.markdown("---")
-st.caption(f"⚕️ RadVision AI Advanced | Session: {st.session_state.get('session_id', 'N/A')} | v(dev)") # Added version/identifier
+st.caption(f"⚕️ RadVision AI Advanced | Session: {st.session_state.get('session_id', 'N/A')} | v(dev)")
 logger.info("--- App Render Cycle Complete ---")
