@@ -1,4 +1,4 @@
-# main_app.py (Revision - Pass display_image directly to canvas, Keep Patch)
+# main_app.py (Revision - Force Data URL for Canvas Background)
 
 # --- Core Libraries ---
 import io
@@ -158,26 +158,39 @@ except ImportError as import_error:
 # <<< --- Helper Image Conversion (safe_image_to_data_url) --- >>>
 # ------------------------------------------------------------------------------
 def safe_image_to_data_url(img: Image.Image) -> str:
-    # This function is primarily for cases where you need a data URL explicitly,
-    # like embedding in HTML/Markdown, maybe less critical for st_canvas itself if the patch works.
-    if not isinstance(img, Image.Image): logger.warning(f"safe_image_to_data_url: Received non-PIL Image (type: {type(img)})."); return ""
-    buffered = io.BytesIO(); format = "PNG" # Default to PNG for broad compatibility
+    """Converts a PIL Image to a base64 Data URL (PNG format)."""
+    if not isinstance(img, Image.Image):
+        logger.warning(f"safe_image_to_data_url: Received non-PIL Image (type: {type(img)}).")
+        return ""
+    buffered = io.BytesIO()
+    format = "PNG" # Default to PNG for broad compatibility & transparency
     try:
         img_to_save = img
-        # Ensure compatibility with PNG save format
-        if img.mode not in ['RGB', 'L', 'RGBA']:
-            logger.debug(f"safe_image_to_data_url: Converting mode {img.mode} to RGB for PNG.")
-            img_to_save = img.convert('RGB')
-        elif img.mode == 'P':
-            logger.debug(f"safe_image_to_data_url: Converting mode P to RGBA for PNG.")
-            img_to_save = img.convert('RGBA') # Convert indexed palette to RGBA for PNG
+        # Ensure compatibility with PNG save format (RGB, RGBA, L, P modes usually ok)
+        # If PIL struggles with a specific mode for PNG, convert to RGBA as a safe bet
+        if img.mode not in ['RGB', 'L', 'RGBA', 'P']:
+            logger.debug(f"safe_image_to_data_url: Converting mode {img.mode} to RGBA for PNG.")
+            img_to_save = img.convert('RGBA')
+        # P mode is okay for PNG, no conversion needed here normally.
+        # L mode is okay for PNG.
+        # RGB/RGBA are okay.
 
         img_to_save.save(buffered, format=format)
         img_str = base64.b64encode(buffered.getvalue()).decode()
         return f"data:image/{format.lower()};base64,{img_str}"
     except Exception as e:
-        logger.error(f"Failed converting image to data URL: {e}", exc_info=True)
-        return ""
+        logger.error(f"Failed converting image to data URL using helper: {e}", exc_info=True)
+        # Attempt fallback conversion to RGB before giving up
+        try:
+            logger.warning("safe_image_to_data_url: Retrying conversion to RGB for data URL.")
+            img_rgb = img.convert('RGB')
+            buffered_rgb = io.BytesIO()
+            img_rgb.save(buffered_rgb, format="PNG") # Still save as PNG
+            img_str_rgb = base64.b64encode(buffered_rgb.getvalue()).decode()
+            return f"data:image/png;base64,{img_str_rgb}"
+        except Exception as e2:
+             logger.error(f"Fallback conversion to RGB also failed: {e2}", exc_info=True)
+             return ""
 
 
 # ------------------------------------------------------------------------------
@@ -326,7 +339,6 @@ with st.sidebar:
                         logger.debug("Attempting standard image processing...")
                         try:
                             img = Image.open(io.BytesIO(st.session_state.raw_image_bytes))
-                            # Keep original format info if needed: logger.info(f"Image opened: Format={img.format}, Mode={img.mode}, Size={img.size}")
                             img.load() # Load image data to ensure validity
 
                             temp_display_image = img.copy()
@@ -350,7 +362,6 @@ with st.sidebar:
                             elif temp_processed_image.mode not in ['RGB', 'L']:
                                  logger.info(f"Converting processed image from {temp_processed_image.mode} to RGB.")
                                  temp_processed_image = temp_processed_image.convert("RGB")
-
 
                             # Clear any previous DICOM state
                             st.session_state.dicom_dataset = None; st.session_state.dicom_metadata = {}; st.session_state.current_display_wc = None; st.session_state.current_display_ww = None
@@ -517,10 +528,50 @@ with col1:
         # Add explicit warning about checking browser console - VERY IMPORTANT FOR CANVAS ISSUES
         st.warning("ℹ️ **If the image viewer below appears blank or drawing fails, please check the Browser Developer Console (press F12) for JavaScript errors.**", icon="⚠️")
 
+        bg_image_data_url = None # Initialize
         try:
+            # --- FORCE DATA URL GENERATION ---
+            # Use the patched function or the helper
+            logger.debug("Attempting to generate Data URL for canvas background...")
+            # Option 1: Try using the potentially patched st_image.image_to_url first
+            data_url_generated = False
+            if hasattr(st_image, "image_to_url"):
+                try:
+                     bg_image_data_url = st_image.image_to_url(
+                         display_img_object,
+                         width=-1, # Let PIL handle size based on actual image for URL gen
+                         clamp=False,
+                         channels="RGBA", # Prefer RGBA for data URL to preserve transparency if any
+                         output_format="PNG", # Use PNG for broad compatibility
+                         image_id=f"canvas_bg_{st.session_state.session_id or uuid.uuid4()}" # Unique ID
+                     )
+                     if bg_image_data_url and bg_image_data_url.startswith("data:image"):
+                        logger.info(f"Generated data URL via st_image.image_to_url (Length: {len(bg_image_data_url)} chars)")
+                        data_url_generated = True
+                     else:
+                        logger.warning(f"st_image.image_to_url returned invalid data: {bg_image_data_url[:100]}...")
+                        bg_image_data_url = None # Reset if invalid
+                except Exception as url_err:
+                     logger.error(f"Failed to generate Data URL via st_image.image_to_url: {url_err}", exc_info=False) # Log less verbosely maybe
+                     bg_image_data_url = None # Ensure it's None on error
+
+            # Option 2: Fallback to our helper function if Option 1 failed or wasn't available
+            if not data_url_generated:
+                 logger.warning("Falling back to safe_image_to_data_url helper for canvas background.")
+                 bg_image_data_url = safe_image_to_data_url(display_img_object)
+                 if bg_image_data_url and bg_image_data_url.startswith("data:image"):
+                    logger.info(f"Generated data URL via safe_image_to_data_url (Length: {len(bg_image_data_url)} chars)")
+                    data_url_generated = True
+                 else:
+                    logger.error("Helper safe_image_to_data_url also failed to generate a valid URL.")
+                    bg_image_data_url = None
+
+            if not data_url_generated:
+                 raise ValueError("Failed to generate a valid Data URL for the canvas background after all attempts.")
+            # ---------------------------------
+
             # --- Calculate optimal canvas dimensions based on image aspect ratio ---
             MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT = 700, 600
-            # ***** CHANGE: Use display_img_object directly for size *****
             img_w, img_h = display_img_object.size
             if img_w <= 0 or img_h <= 0: raise ValueError(f"Invalid image dimensions: {img_w}x{img_h}")
 
@@ -545,13 +596,13 @@ with col1:
                 initial_drawing = None # Reset if format is wrong
 
             # --- Render the Drawable Canvas ---
-            # ***** CHANGE: Pass display_img_object directly as background_image *****
-            logger.info(f"Rendering st_canvas with background. Image Mode: {display_img_object.mode}. Initial drawing: {'Set' if initial_drawing else 'None'}")
+            # ***** CHANGE: Pass the generated Data URL string *****
+            logger.info(f"Rendering st_canvas with background using generated Data URL. Initial drawing: {'Set' if initial_drawing else 'None'}")
             canvas_result = st_canvas(
                 fill_color="rgba(255, 165, 0, 0.2)",  # ROI fill
                 stroke_width=2,                      # ROI border width
                 stroke_color="rgba(220, 50, 50, 0.9)",# ROI border color
-                background_image=display_img_object, # *** The key change: Use the display PIL image directly ***
+                background_image=bg_image_data_url,  # *** Pass the Data URL string ***
                 update_streamlit=True,               # Send drawing updates back
                 height=canvas_h,                     # Calculated height
                 width=canvas_w,                      # Calculated width
