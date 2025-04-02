@@ -9,3 +9,6 @@ torch
 accelerate
 pillow
 streamlit-drawable-canvas
+pylibjpeg 
+pylibjpeg-libjpeg  
+python-gdcm
