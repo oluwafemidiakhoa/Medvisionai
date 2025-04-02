@@ -80,7 +80,7 @@ try:
         estimate_ai_confidence
     )
     from report_utils import generate_pdf_report_bytes
-    from ui_helpers import display_dicom_metadata, dicom_wl_sliders # Ensure ui_helpers.py exists!
+    from ui_components import display_dicom_metadata, dicom_wl_sliders # Ensure ui_components.py exists!
 
     try:
         # Keep HF optional
@@ -95,7 +95,7 @@ try:
 except ImportError as import_error:
     # Display a clear error in the UI and log it
     # This st.error() call is now SAFE because set_page_config ran first.
-    st.error(f"CRITICAL ERROR: Failed to import required code module ({import_error}). The application cannot start. Please ensure all `.py` helper files (like dicom_utils.py, ui_helpers.py, etc.) are present in the same directory as the main app script.")
+    st.error(f"CRITICAL ERROR: Failed to import required code module ({import_error}). The application cannot start. Please ensure all `.py` helper files (like dicom_utils.py, ui_components.py, etc.) are present in the same directory as the main app script.")
     logger.critical(f"Failed to import required utility modules: {import_error}", exc_info=True)
     # Stop execution completely if critical code is missing
     st.stop()
@@ -759,7 +759,7 @@ if current_action:
 
                          display_value = ""
                          try:
-                             # Reuse formatting logic from ui_helpers or report_utils if abstracted
+                             # Reuse formatting logic from ui_components or report_utils if abstracted
                              if isinstance(tag_value, list): display_value = ", ".join(map(str, tag_value))
                              elif isinstance(tag_value, pydicom.uid.UID): display_value = tag_value.name
                              elif isinstance(tag_value, bytes): display_value = f"[Binary Data ({len(tag_value)} bytes)]"
