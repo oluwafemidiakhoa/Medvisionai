@@ -44,13 +44,16 @@ def image_to_data_url(img: Image.Image) -> str:
     return f"data:image/png;base64,{img_str}"
 
 # ------------------------------------------------------------------------------
-# Define a helper rerun function
+# Define a helper rerun function that works in Streamlit 1.44.0
 # ------------------------------------------------------------------------------
 def rerun():
     try:
+        # Try to use experimental_rerun if available.
         st.experimental_rerun()
-    except AttributeError:
-        st.warning("Rerun function not available. Please update Streamlit to a newer version.")
+    except Exception:
+        # As a workaround, update query parameters to force a refresh.
+        st.experimental_set_query_params(dummy=str(uuid.uuid4()))
+        st.stop()
 
 # ------------------------------------------------------------------------------
 # 3) Setup Logging
@@ -62,8 +65,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------
-# 4) Configure Streamlit Page
-#    Using a centered layout for a polished look.
+# 4) Configure Streamlit Page (centered layout)
 # ------------------------------------------------------------------------------
 st.set_page_config(
     page_title="RadVision AI",
@@ -334,7 +336,7 @@ with st.sidebar:
     else:
         st.info("Upload an image to enable further actions.")
 
-st.markdown("---")
+    st.markdown("---")
 
 # =============================================================================
 # === MAIN PANEL DISPLAYS =====================================================
