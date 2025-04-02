@@ -96,7 +96,7 @@ for key, default_value in DEFAULT_STATE.items():
 # ------------------------------------------------------------------------------
 # 6) Page Title & Disclaimer (Inside an Expander for neatness)
 # ------------------------------------------------------------------------------
-st.title("⚕️ MediVision QA Advanced: AI Image Analysis")
+st.title("⚕️ RadVision QA Advanced: AI ")
 
 with st.expander("Important Disclaimer", expanded=False):
     st.warning(
