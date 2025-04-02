@@ -35,13 +35,19 @@ if not hasattr(st_image, "image_to_url"):
 # ------------------------------------------------------------------------------
 # 2) Import Custom Utilities (Placeholder - Assume these exist)
 # ------------------------------------------------------------------------------
+# Mock implementations for demonstration if real files aren't available
+# Replace these with your actual imports
 try:
+    # Ensure these modules are in your Python path or the same directory
     from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
     from llm_interactions import (
         run_initial_analysis, run_multimodal_qa, run_disease_analysis,
         estimate_ai_confidence
     )
+    # from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID # If using HF fallback
     from report_utils import generate_pdf_report_bytes
+
+    # --- Mock HF Fallback if hf_models not present but needed ---
     try:
         from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID
     except ImportError:
@@ -49,8 +55,10 @@ try:
         def query_hf_vqa_inference_api(img: Image.Image, question: str, roi: Optional[Dict] = None) -> Tuple[str, bool]:
             logging.warning("Using MOCK Hugging Face VQA fallback.")
             return f"Mock HF Response to: '{question}' {'(ROI provided)' if roi else ''}", True
+
 except ImportError as e:
     st.error(f"Critical Error: Failed to import utility modules: {e}. App functionality will be limited. Please ensure dicom_utils.py, llm_interactions.py, report_utils.py exist.")
+    # Provide dummy functions so the app doesn't crash immediately during development
     def parse_dicom(b): logging.error("Using mock parse_dicom"); return None
     def extract_dicom_metadata(d): logging.error("Using mock extract_dicom_metadata"); return {"Error": "dicom_utils not found"}
     def dicom_to_image(d, wc, ww, normalize=False): logging.error("Using mock dicom_to_image"); return Image.new("RGB", (100, 100), "grey")
@@ -66,6 +74,7 @@ except ImportError as e:
 
 # --- Helper Functions ---
 def image_to_data_url(img: Image.Image) -> str:
+    """Convert a PIL Image to a base64 encoded data URL (PNG format)."""
     buffered = io.BytesIO()
     try:
         img.save(buffered, format="PNG")
@@ -73,14 +82,16 @@ def image_to_data_url(img: Image.Image) -> str:
         return f"data:image/png;base64,{img_str}"
     except Exception as e:
         logger.error(f"Failed to convert image to data URL: {e}")
-        return ""
+        return "" # Return empty string on failure
 
 # ------------------------------------------------------------------------------
 # 3) Setup Logging
 # ------------------------------------------------------------------------------
+# Use Streamlit's logger to integrate better if deployed on Community Cloud
 logger = logging.getLogger(__name__)
+# Ensure handler is configured - basicConfig is okay for local dev
 logging.basicConfig(
-    level=logging.INFO, # Use INFO or DEBUG
+    level=logging.INFO, # Set to logging.DEBUG for more verbose output
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
@@ -89,9 +100,9 @@ logging.basicConfig(
 # ------------------------------------------------------------------------------
 st.set_page_config(
     page_title="RadVision AI Advanced",
-    layout="centered",
+    layout="centered", # Keeps content within a max width
     page_icon="⚕️",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded" # Keep sidebar open initially
 )
 
 # ------------------------------------------------------------------------------
@@ -99,6 +110,7 @@ st.set_page_config(
 # ------------------------------------------------------------------------------
 # with st.sidebar:
 #     try:
+#         # Ensure the path is correct relative to your script location
 #         st.image("assets/radvisionai-logo.png", width=200)
 #     except Exception as e:
 #         logger.warning(f"Logo image not found or failed to load: {e}")
@@ -107,13 +119,30 @@ st.set_page_config(
 # 6) Initialize Session State
 # ------------------------------------------------------------------------------
 DEFAULT_STATE = {
-    "uploaded_file_info": None, "raw_image_bytes": None, "is_dicom": False,
-    "dicom_dataset": None, "dicom_metadata": {}, "dicom_wc": None, "dicom_ww": None,
-    "processed_image": None, "display_image": None, "session_id": None,
-    "history": [], "initial_analysis": "", "qa_answer": "", "disease_analysis": "",
-    "confidence_score": "", "last_action": None, "pdf_report_bytes": None,
-    "canvas_drawing": None, "roi_coords": None, "slider_wc": None, "slider_ww": None,
+    "uploaded_file_info": None,    # Stores name-size-type string to detect new uploads
+    "raw_image_bytes": None,       # Raw bytes of the uploaded file
+    "is_dicom": False,             # Flag if the uploaded file is DICOM
+    "dicom_dataset": None,         # Parsed pydicom dataset object
+    "dicom_metadata": {},          # Extracted key DICOM metadata
+    "dicom_wc": None,              # Default or current window center
+    "dicom_ww": None,              # Default or current window width
+    "processed_image": None,       # PIL Image object (potentially full depth/original) for backend processing
+    "display_image": None,         # PIL Image object (RGB, potentially window/leveled) for display/canvas
+    "session_id": None,            # Unique ID for the session/report
+    "history": [],                 # List of (question, answer) tuples for Q&A
+    "initial_analysis": "",        # Stores the result of the initial analysis
+    "qa_answer": "",               # Stores the latest Q&A answer
+    "disease_analysis": "",        # Stores the result of focused disease analysis
+    "confidence_score": "",        # Stores the AI confidence estimation result
+    "last_action": None,           # Tracks the last button pressed ('analyze', 'ask', etc.)
+    "pdf_report_bytes": None,      # Stores the generated PDF report bytes
+    "canvas_drawing": None,        # Stores the state of the drawable canvas (JSON)
+    "roi_coords": None,            # Stores {'left': x, 'top': y, 'width': w, 'height': h} of the drawn ROI
+    "slider_wc": None,             # Stores the current value of the WC slider
+    "slider_ww": None,             # Stores the current value of the WW slider
 }
+
+# Initialize session state keys if they don't exist
 for key, default_value in DEFAULT_STATE.items():
     if key not in st.session_state:
         st.session_state[key] = default_value
@@ -122,15 +151,24 @@ for key, default_value in DEFAULT_STATE.items():
 # 7) Page Title & Disclaimer
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI")
+
 with st.expander("⚠️ Important Disclaimer", expanded=False):
     st.warning(
         """
         **Disclaimer:** This tool utilizes Artificial Intelligence for medical image analysis
-        and is intended for informational and research purposes only. [...]
+        and is intended for informational and research purposes only.
+
+        *   **Not a Medical Device:** This application has not been evaluated or approved by any regulatory authority (e.g., FDA, EMA) for clinical diagnosis or patient management.
+        *   **Not a Substitute for Professional Judgment:** The AI-generated outputs must **never** replace the assessment and clinical judgment of a qualified healthcare professional (e.g., radiologist, physician).
+        *   **Verification Required:** All findings, analyses, and suggestions generated by this AI **must** be carefully reviewed, verified, and interpreted by a licensed medical expert in the context of the patient's complete clinical information before making any decisions regarding diagnosis or treatment.
+        *   **Limitations:** AI models can make mistakes, hallucinate information, or fail to identify subtle findings. The accuracy may vary depending on image quality, pathology, and other factors.
+        *   **No Liability:** The creators and providers of this tool assume no liability for any decisions made or actions taken based on the information provided by this application. Use at your own risk and discretion.
+
         By using this tool, you acknowledge and agree to these terms.
-        """ # Truncated for brevity
+        """
     )
-st.markdown("---")
+
+st.markdown("---") # Visual separator
 
 # =============================================================================
 # === SIDEBAR CONTROLS ========================================================
@@ -143,7 +181,7 @@ with st.sidebar:
         "Upload Image (JPG, PNG, DCM)",
         type=["jpg", "jpeg", "png", "dcm", "dicom"],
         key="file_uploader",
-        help="Select a standard image format or a DICOM (.dcm) file. Max 500MB."
+        help="Select a standard image format or a DICOM (.dcm) file. Max 500MB." # Added size hint
     )
 
     # --- Process Uploaded File ---
@@ -151,27 +189,34 @@ with st.sidebar:
         new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{uploaded_file.type}"
         if new_file_info != st.session_state.uploaded_file_info:
             logger.info(f"New file upload detected: {uploaded_file.name} ({uploaded_file.type}, {uploaded_file.size} bytes)")
-            # Reset state
+
+            # Reset state for the new image
             for key, default_value in DEFAULT_STATE.items():
-                if key not in ["file_uploader"]: st.session_state[key] = default_value
+                if key not in ["file_uploader"]: # Don't reset the uploader widget itself
+                    st.session_state[key] = default_value
             logger.debug("Session state reset for new file.")
+
             st.session_state.uploaded_file_info = new_file_info
-            st.session_state.session_id = str(uuid.uuid4())[:8]
+            st.session_state.session_id = str(uuid.uuid4())[:8] # Shorter session ID
             st.session_state.raw_image_bytes = uploaded_file.getvalue()
+
+            # Determine if DICOM based on extension or content type
             file_ext = os.path.splitext(uploaded_file.name)[1].lower()
             st.session_state.is_dicom = file_ext in (".dcm", ".dicom") or "dicom" in uploaded_file.type.lower()
             logger.info(f"File identified as DICOM: {st.session_state.is_dicom}")
 
+            # --- Image Processing ---
             with st.spinner("🔬 Processing image... Please wait."):
                 processing_successful = False
-                temp_display_image = None
-                temp_processed_image = None
+                temp_display_image = None # Use temporary variable for safety
+                temp_processed_image = None # Also use temp for processed image
 
                 # --- DICOM Processing ---
                 if st.session_state.is_dicom:
                     try:
                         logger.debug("Attempting to parse DICOM...")
                         st.session_state.dicom_dataset = parse_dicom(st.session_state.raw_image_bytes)
+
                         if st.session_state.dicom_dataset:
                             logger.info("DICOM parsed successfully.")
                             ds = st.session_state.dicom_dataset
@@ -180,25 +225,35 @@ with st.sidebar:
                             st.session_state.dicom_wc, st.session_state.dicom_ww = wc, ww
                             logger.info(f"Default W/L from DICOM: WC={wc}, WW={ww}")
 
+                            # Generate display image using default W/L
                             logger.debug("Attempting to generate display image from DICOM...")
                             temp_display_image = dicom_to_image(ds, wc, ww)
-                            logger.debug("Attempting to generate processed image from DICOM...")
-                            temp_processed_image = dicom_to_image(ds, window_center=None, window_width=None, normalize=True)
 
+                            # Generate 'processed' image (e.g., full range) for AI backend
+                            logger.debug("Attempting to generate processed image from DICOM...")
+                            temp_processed_image = dicom_to_image(ds, window_center=None, window_width=None, normalize=True) # Example: normalized
+
+                            # Check if images were created
                             if temp_display_image and temp_processed_image:
                                 logger.info("DICOM images (display & processed) generated.")
                                 processing_successful = True
-                                # Set sliders
+
+                                # Set sliders based on pixel range or defaults
                                 pixel_min, pixel_max = 0, 4095
                                 try:
-                                    arr = ds.pixel_array; pixel_min = float(arr.min()); pixel_max = float(arr.max())
+                                    arr = ds.pixel_array
+                                    pixel_min = float(arr.min())
+                                    pixel_max = float(arr.max())
                                     logger.info(f"DICOM pixel range: {pixel_min} to {pixel_max}")
-                                except Exception as e: logger.warning(f"Could not get DICOM pixel range: {e}")
+                                except Exception as e:
+                                    logger.warning(f"Could not get DICOM pixel range: {e}")
+
                                 default_wc = (pixel_max + pixel_min) / 2
                                 default_ww = (pixel_max - pixel_min) if pixel_max > pixel_min else 1024
                                 st.session_state.slider_wc = wc if wc is not None else default_wc
                                 st.session_state.slider_ww = ww if (ww is not None and ww > 0) else default_ww
                                 logger.info(f"Slider initial values set: WC={st.session_state.slider_wc}, WW={st.session_state.slider_ww}")
+
                             else:
                                 st.error("DICOM processing failed: Could not generate image objects.")
                                 logger.error("dicom_to_image returned None for display or processed image.")
@@ -208,16 +263,20 @@ with st.sidebar:
                     except Exception as e:
                         st.error(f"Error during DICOM processing: {e}")
                         logger.error(f"DICOM processing pipeline error: {e}", exc_info=True)
+
                 # --- Non-DICOM Image Processing ---
                 else:
                     try:
                         logger.debug("Attempting to open standard image...")
                         img = Image.open(io.BytesIO(st.session_state.raw_image_bytes))
+                        # Create processed image (copy of original, maybe convert later if needed)
                         temp_processed_image = img.copy()
+                        # Create display image, ensuring RGB mode for compatibility
                         logger.debug(f"Original image mode: {img.mode}. Converting to RGB for display.")
                         temp_display_image = img.convert("RGB")
-                        st.session_state.dicom_dataset = None
-                        st.session_state.dicom_metadata = {}
+
+                        st.session_state.dicom_dataset = None # Ensure reset
+                        st.session_state.dicom_metadata = {} # Ensure reset
                         processing_successful = True
                         logger.info("Standard image opened and converted for display.")
                     except UnidentifiedImageError:
@@ -229,29 +288,34 @@ with st.sidebar:
 
                 # --- Final Check and State Update ---
                 if processing_successful and isinstance(temp_display_image, Image.Image) and isinstance(temp_processed_image, Image.Image):
+                    # Ensure the final display image is RGB for canvas
                     if temp_display_image.mode != 'RGB':
                         logger.warning(f"Final check: Converting display image from {temp_display_image.mode} to RGB.")
                         st.session_state.display_image = temp_display_image.convert('RGB')
                     else:
                         st.session_state.display_image = temp_display_image
-                    st.session_state.processed_image = temp_processed_image
+
+                    st.session_state.processed_image = temp_processed_image # Store the processed image
+
                     logger.info(f"Processing complete. display_image: {st.session_state.display_image.mode} {st.session_state.display_image.size}, processed_image: {st.session_state.processed_image.mode} {st.session_state.processed_image.size}")
                     st.success("✅ Image loaded successfully!")
-                    st.session_state.roi_coords = None
-                    st.session_state.canvas_drawing = None
-                    st.rerun()
+                    st.session_state.roi_coords = None # Clear ROI on new image
+                    st.session_state.canvas_drawing = None # Clear canvas state
+                    st.rerun() # Trigger UI update with the new image
                 else:
                     st.error("❌ Image loading failed after processing. Please check logs or try a different file.")
                     logger.error(f"Processing marked successful={processing_successful} but image objects invalid: display={type(temp_display_image)}, processed={type(temp_processed_image)}")
+                    # Clear potentially problematic state
                     st.session_state.uploaded_file_info = None
                     st.session_state.raw_image_bytes = None
                     st.session_state.display_image = None
                     st.session_state.processed_image = None
+
             # End of `with st.spinner`
         # End of `if new_file_info != ...`
     # End of `if uploaded_file is not None`
 
-    st.markdown("---")
+    st.markdown("---") # Separator
 
     # --- 2) DICOM Window/Level Controls (Conditional) ---
     if st.session_state.display_image and st.session_state.is_dicom and st.session_state.dicom_dataset:
@@ -471,8 +535,11 @@ with col1:
                 if isinstance(value, list): display_val = ", ".join(map(str, value))
                 elif isinstance(value, pydicom.uid.UID): display_val = f"{value.name} ({value})"
                 elif isinstance(value, bytes):
-                    try: display_val = value.decode('utf-8', errors='replace').strip()
-                    except Exception: display_val = f"[Binary Data ({len(value)} bytes)]"
+                    # Corrected multi-line try-except
+                    try:
+                        display_val = value.decode('utf-8', errors='replace').strip()
+                    except Exception:
+                        display_val = f"[Binary Data ({len(value)} bytes)]"
                 else: display_val = str(value).strip()
                 if len(display_val) > 100: display_val = display_val[:100] + "..."
                 if display_val: col_target.markdown(f"**{key}:** `{display_val}`")
@@ -554,18 +621,37 @@ if current_action:
                         draw.rectangle([x0, y0, x1, y1], outline="red", width=3); img_with_roi_for_report = img_copy
                         logger.info("Drew ROI onto image for PDF report.")
                     except Exception as e: logger.error(f"Failed to draw ROI on report image: {e}", exc_info=True)
+
                 if isinstance(img_with_roi_for_report, Image.Image):
                     full_qa_history = "\n\n".join([f"User Q: {q}\n\nAI A: {a}" for q, a in st.session_state.history]) if st.session_state.history else "No Q&A history."
                     outputs_for_report = {"Initial Analysis": st.session_state.initial_analysis or "Not performed.", "Conversation History": full_qa_history, "Disease-Specific Analysis": st.session_state.disease_analysis or "Not performed.", "Last Confidence Estimate": st.session_state.confidence_score or "Not estimated."}
+
+                    # --- Corrected DICOM Metadata Formatting for PDF ---
                     if st.session_state.is_dicom and st.session_state.dicom_metadata:
                          meta_str_list = []
                          for k, v in st.session_state.dicom_metadata.items():
-                            if isinstance(v, list): display_v = ", ".join(map(str, v))
-                            elif isinstance(v, pydicom.uid.UID): display_v = f"{v.name} ({v})"
-                            elif isinstance(v, bytes): try: display_v = v.decode("utf-8", errors="replace").strip(); except Exception: display_v = f"[Binary Data ({len(v)} bytes)]"
-                            else: display_v = str(v).strip()
-                            if display_v: meta_str_list.append(f"{k}: {display_v}")
-                         outputs_for_report["DICOM Metadata"] = "\n".join(meta_str_list) if meta_str_list else "No significant metadata."
+                            display_v = "" # Initialize display_v
+                            if isinstance(v, list):
+                                display_v = ", ".join(map(str, v))
+                            elif isinstance(v, pydicom.uid.UID):
+                                display_v = f"{v.name} ({v})"
+                            elif isinstance(v, bytes):
+                                # Corrected multi-line try-except for bytes decoding
+                                try:
+                                    display_v = v.decode("utf-8", errors="replace").strip()
+                                except Exception:
+                                    display_v = f"[Binary Data ({len(v)} bytes)]"
+                            else:
+                                display_v = str(v).strip()
+
+                            # Check if display_v has content before adding
+                            if display_v:
+                                meta_str_list.append(f"{k}: {display_v}")
+
+                         # Assign the formatted string or a default message
+                         outputs_for_report["DICOM Metadata"] = "\n".join(meta_str_list) if meta_str_list else "No significant metadata found."
+                    # --- End of Corrected DICOM Metadata Formatting ---
+
                     pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_with_roi_for_report, outputs_for_report)
                     if pdf_bytes: st.session_state.pdf_report_bytes = pdf_bytes; st.success("PDF report data generated."); logger.info("PDF report data generation successful.")
                     else: st.error("Failed to generate PDF data."); logger.error("PDF report generation failed (returned None).")
