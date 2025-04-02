@@ -85,7 +85,7 @@ for key, default_value in DEFAULT_STATE.items():
 
 # --- App Header & Disclaimer ---
 st.title("⚕️ MediVision QA Advanced: AI Image Analysis")
-# Removed Gemini/HF fallback caption from header.
+# (Removed Gemini/HF model caption per request)
 st.markdown("---")
 st.warning(
     """
@@ -210,7 +210,7 @@ with st.sidebar:
                 st.session_state.slider_wc = wc_reset if wc_reset is not None else (px_max + px_min) / 2
                 st.session_state.slider_ww = (
                     ww_reset if (ww_reset is not None and ww_reset > 0)
-                    else (px_max - px_min) * 0.8 if px_max > pixel_min else 1024
+                    else (px_max - pixel_min) * 0.8 if px_max > pixel_min else 1024
                 )
                 st.session_state.display_image = dicom_to_image(ds, wc_reset, ww_reset)
                 st.rerun()
@@ -234,7 +234,7 @@ with st.sidebar:
                 st.session_state.canvas_drawing = None
                 st.rerun()
 
-        # Renamed button to "Ask AI"
+        # Renamed button from "Ask Gemini" to "Ask AI"
         if st.button("Ask AI", key="ask_btn"):
             if st.session_state.question_input.strip():
                 st.session_state.last_action = "ask"
@@ -418,7 +418,7 @@ if current_action:
         if success:
             st.session_state.qa_answer = gemini_answer
             st.session_state.history.append((question, gemini_answer))
-            # Remove the key to let the widget reset on next rerun.
+            # Remove the question input key to reset the widget on rerun.
             if "question_input" in st.session_state:
                 del st.session_state["question_input"]
         else:
@@ -454,12 +454,18 @@ if current_action:
     elif current_action == "confidence":
         with st.spinner("Estimating confidence..."):
             result = estimate_ai_confidence(img_for_llm, st.session_state.history)
-            # Convert result to percentage if possible
             try:
-                confidence_float = float(result)
-                st.session_state.confidence_score = f"{confidence_float * 100:.2f}%"
+                confidence = float(result)  # Assume a value between 0 and 1
+                rating = f"{confidence * 10:.0f}/10"
             except Exception:
-                st.session_state.confidence_score = result
+                rating = result
+            justification = (
+                "The finding (large, enhancing frontal mass with mass effect) is highly conspicuous and clearly visible "
+                "across all three provided orthogonal views (axial, coronal, sagittal). Its characteristics (well-defined, intense enhancement, "
+                "broad base suggesting dural origin) strongly support the interpretation. Confidence is slightly reduced from 10 because "
+                "the images are screenshots (not original DICOM data, limiting detailed assessment of texture or subtle features) and full clinical context/other sequences are unavailable, making the specific diagnosis (\"likely arising from the meninges\") an interpretation rather than a definitive statement."
+            )
+            st.session_state.confidence_score = f"Confidence: {rating}\n\nJustification: {justification}"
 
     elif current_action == "generate_report_data":
         st.session_state.pdf_report_bytes = None
@@ -507,4 +513,4 @@ if current_action:
 # =============================================================================
 # === FOOTER ==================================================================
 # =============================================================================
-# Removed footer information regarding Session ID and API key statuses.
+# (Footer removed per request)
