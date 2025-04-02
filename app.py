@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 #    Using a more centered layout for a polished look
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="RadVision AI",
+    page_title="RadVisionAI",
     layout="centered",
     page_icon="⚕️"
 )
@@ -105,7 +105,7 @@ for key, default_value in DEFAULT_STATE.items():
 # ------------------------------------------------------------------------------
 # 7) Page Title & Disclaimer (Inside an Expander for neatness)
 # ------------------------------------------------------------------------------
-st.title("⚕️ RadVision QA Advanced: AI")
+st.title("⚕️ RadVisioAI")
 
 with st.expander("Important Disclaimer", expanded=False):
     st.warning(
