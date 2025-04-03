@@ -2,10 +2,10 @@
 Ultra-Advanced RadVision AI: World-Class Medical Imaging Analysis
 
 - Supports DICOM or standard images
-- Performs AI analysis (initial, Q&A, disease-focused, confidence)
+- Performs AI analysis (initial, Q&A, condition-focused, confidence estimation)
 - Enables ROI selection via a drawable canvas
-- All action buttons are in the sidebar
-- Main page uses a two-column layout: left for the image & ROI, right for analysis results
+- All action buttons are placed in the sidebar
+- Uses a two-column layout: left for image/ROI, right for analysis results
 """
 
 # --- Core Libraries ---
@@ -74,7 +74,7 @@ try:
     import pylibjpeg
     logger.info("pylibjpeg found.")
 except ImportError:
-    logger.warning("pylibjpeg not found. Install pylibjpeg & pylibjpeg-libjpeg for extended DICOM compatibility.")
+    logger.warning("pylibjpeg not found. For extended DICOM compatibility, install pylibjpeg and pylibjpeg-libjpeg.")
 try:
     import gdcm
     logger.info("python-gdcm found.")
@@ -180,12 +180,12 @@ if not isinstance(st.session_state.history, list):
 logger.debug("Session state initialized.")
 
 # ------------------------------------------------------------------------------
-# <<< Page Title & Minimal Usage Guide >>>
+# <<< Page Title & Usage Guide >>>
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research/informational purposes only. Verify AI outputs with a qualified specialist.")
-    st.markdown("**Steps:** 1. Upload an image 2. Adjust DICOM Window/Level if needed 3. Run analysis and ask questions via the sidebar 4. Review results and generate report")
+    st.markdown("**Steps:** 1. Upload an image 2. Adjust DICOM Window/Level if needed 3. Use sidebar actions to run analysis, ask questions, or generate reports")
 st.markdown("---")
 
 # =============================================================================
@@ -273,7 +273,8 @@ with st.sidebar:
                     initial_ww=st.session_state.current_display_ww
                 )
                 if wc_slider is not None and ww_slider is not None:
-                    old_wc, old_ww = st.session_state.current_display_wc, st.session_state.current_display_ww
+                    old_wc = st.session_state.current_display_wc
+                    old_ww = st.session_state.current_display_ww
                     changed = (old_wc is None or abs(wc_slider - old_wc) > 1e-3) or (old_ww is None or abs(ww_slider - old_ww) > 1e-3)
                     if changed:
                         with st.spinner("Applying W/L..."):
@@ -299,6 +300,7 @@ with st.sidebar:
                         st.experimental_rerun()
                     except Exception as e:
                         st.error(f"Reset W/L failed: {e}")
+
     st.markdown("---")
 
     # --- AI Actions in Sidebar ---
@@ -613,7 +615,6 @@ if current_action:
     finally:
         st.session_state.last_action = None
         logger.debug(f"Action '{current_action}' completed.")
-        # Wrap st.experimental_rerun() in a try/except to prevent app crashes
         try:
             st.experimental_rerun()
         except Exception as rerun_error:
