@@ -1,11 +1,11 @@
 """
 Ultra-Advanced RadVision AI: World-Class Medical Imaging Analysis
 
-- Supports DICOM or standard images
-- Performs AI analysis (initial, Q&A, condition-focused, confidence estimation)
-- Enables ROI selection via a drawable canvas
-- All AI action buttons are located in the sidebar
-- Main page uses a two-column layout: left for image display/ROI selection, right for analysis results
+- Supports DICOM and standard images.
+- Provides AI analysis (initial, Q&A, condition-focused, confidence estimation).
+- Enables ROI selection via a drawable canvas.
+- All AI action buttons are placed in the sidebar.
+- Uses a two-column layout: left for image/ROI canvas, right for analysis results.
 """
 
 # --- Core Libraries ---
@@ -23,7 +23,6 @@ import streamlit as st
 # --- Drawable Canvas ---
 try:
     from streamlit_drawable_canvas import st_canvas
-    # Attempt to get version from module or pkg_resources
     try:
         from streamlit_drawable_canvas import __version__ as CANVAS_VERSION
     except ImportError:
@@ -44,6 +43,7 @@ try:
 except ImportError:
     st.error("CRITICAL ERROR: Pillow (PIL) is not installed. Please run: pip install Pillow")
     st.stop()
+
 try:
     import pydicom
     import pydicom.errors
@@ -53,7 +53,7 @@ except ImportError:
     pydicom = None
 
 # -------------------------------------------------------------------------------
-# <<< Configure Streamlit Page (MUST BE FIRST st Command) >>>
+# <<< Configure Streamlit Page >>> 
 # -------------------------------------------------------------------------------
 st.set_page_config(
     page_title="RadVision AI Advanced",
@@ -63,7 +63,7 @@ st.set_page_config(
 )
 
 # -------------------------------------------------------------------------------
-# <<< Setup Logging >>>
+# <<< Setup Logging >>> 
 # -------------------------------------------------------------------------------
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -136,7 +136,7 @@ try:
             return "[Fallback Unavailable] HF module not found.", False
         logger.warning("hf_models.py not found. HF VQA fallback disabled.")
 except ImportError as import_error:
-    st.error(f"CRITICAL ERROR importing helper modules ({import_error}). Ensure all required .py files are present.")
+    st.error(f"CRITICAL ERROR importing helper modules ({import_error}). Ensure all required modules are present.")
     logger.critical(f"Failed import: {import_error}", exc_info=True)
     st.stop()
 
@@ -195,7 +195,7 @@ logger.debug("Session state initialized.")
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research and educational purposes only. Verify AI outputs with a qualified specialist.")
-    st.markdown("**Steps:** 1. Upload an image 2. Adjust DICOM Window/Level if necessary 3. Use sidebar AI Actions 4. View results and generate reports")
+    st.markdown("**Steps:** 1. Upload an image 2. Adjust DICOM Window/Level (if needed) 3. Use AI Actions from the sidebar 4. View analysis results and generate reports")
 st.markdown("---")
 
 # =============================================================================
@@ -205,7 +205,7 @@ with st.sidebar:
     st.header("Upload & Controls")
     ALLOWED_TYPES = ["jpg", "jpeg", "png", "dcm", "dicom"]
     uploaded_file = st.file_uploader(
-        f"Upload Image ({', '.join(type.upper() for type in ALLOWED_TYPES)})",
+        f"Upload Image ({', '.join(t.upper() for t in ALLOWED_TYPES)})",
         type=ALLOWED_TYPES,
         key="file_uploader_widget",
         accept_multiple_files=False,
@@ -479,7 +479,7 @@ with col2:
         st.text_area("AI Confidence Estimation", value=st.session_state.confidence_score or "No confidence estimation performed.", height=450, key="output_confidence", disabled=True, help="Estimated AI confidence level.")
 
 # =============================================================================
-# === ACTION HANDLING LOGIC ===================================================
+# === ACTION HANDLING LOGIC ===
 # =============================================================================
 current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
@@ -511,6 +511,7 @@ if current_action:
             st.session_state.disease_analysis = ""
             st.session_state.confidence_score = ""
             logger.info("Initial analysis completed.")
+            st.experimental_rerun()
         elif current_action == "ask":
             q = st.session_state.question_input_widget.strip()
             if not q:
@@ -545,6 +546,7 @@ if current_action:
                     else:
                         st.session_state.qa_answer += "\n\n**[Fallback Unavailable]**"
                         logger.warning("HF fallback skipped: API token not configured or module missing.")
+            st.experimental_rerun()
         elif current_action == "disease":
             d = st.session_state.disease_select_widget
             if not d:
@@ -558,16 +560,18 @@ if current_action:
                 st.session_state.qa_answer = ""
                 st.session_state.confidence_score = ""
                 logger.info(f"Disease analysis completed for '{d}'.")
+            st.experimental_rerun()
         elif current_action == "confidence":
             if not (conversation_history or st.session_state.initial_analysis or st.session_state.disease_analysis):
                 st.warning("Perform analysis or Q&A first.")
                 logger.warning("Confidence estimation skipped: No context.")
             else:
                 st.info(f"📊 Estimating confidence{roi_str}...")
-                with st.spinner("Calculating confidence..."):
+                with st.spinner("Calculating confidence score..."):
                     res = estimate_ai_confidence(image_for_llm, conversation_history, st.session_state.initial_analysis, st.session_state.disease_analysis, roi)
                 st.session_state.confidence_score = res
                 logger.info("Confidence estimation completed.")
+            st.experimental_rerun()
         elif current_action == "generate_report_data":
             st.info("📄 Generating PDF report data...")
             st.session_state.pdf_report_bytes = None
@@ -613,19 +617,19 @@ if current_action:
                 else:
                     st.error("Failed to generate PDF report data.")
                     logger.error("PDF generation returned None.")
+            st.experimental_rerun()
         else:
             st.warning(f"Unknown action: '{current_action}'")
             logger.warning(f"Action handler received unknown action: '{current_action}'")
+            st.experimental_rerun()
     except Exception as e:
-        st.error(f"An error occurred during the '{current_action}' action: {e}")
+        st.error(f"An error occurred during action '{current_action}': {e}")
         logger.critical(f"Critical error during action '{current_action}': {e}", exc_info=True)
     finally:
         st.session_state.last_action = None
-        logger.debug(f"Action '{current_action}' completed.")
-        try:
-            st.experimental_rerun()
-        except Exception as rerun_error:
-            logger.error(f"Error during experimental rerun: {rerun_error}")
+        logger.debug(f"Action '{current_action}' handler finished.")
+        # Remove the unconditional rerun here to avoid infinite loops
+        # st.experimental_rerun()  <-- This call has been removed
 
 # =============================================================================
 # === Footer & Additional UI Elements =======================================
