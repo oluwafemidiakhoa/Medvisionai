@@ -40,10 +40,10 @@ st.set_page_config(
 )
 
 # --- Display Hero Logo ---
-# Ensure the logo exists in the assets folder
 logo_path = os.path.join("assets", "radvisionai-hero.jpeg")
 if os.path.exists(logo_path):
-    st.image(logo_path, use_column_width=True)
+    # Set the logo width to 400 pixels
+    st.image(logo_path, width=400)
 else:
     st.warning("Hero logo not found in assets folder.")
 
