@@ -1,11 +1,11 @@
 """
 Ultra-Advanced RadVision AI: World-Class Medical Imaging Analysis
 
-- DICOM or standard images
-- AI analysis (initial, Q&A, disease-focused, confidence)
-- ROI selection via drawable canvas
-- All action buttons placed in the sidebar
-- Main page uses two columns: left for image, right for analysis results
+- Supports DICOM and standard images
+- Performs multi-step AI analysis (initial, Q&A, disease-focused, confidence)
+- Allows ROI selection via a drawable canvas
+- All action buttons are placed in the sidebar
+- Main page uses a two-column layout (left: image, right: analysis results)
 """
 
 # --- Core Libraries ---
@@ -38,6 +38,14 @@ st.set_page_config(
     page_icon="⚕️",
     initial_sidebar_state="expanded"
 )
+
+# --- Display Hero Logo ---
+# Ensure the logo exists in the assets folder
+logo_path = os.path.join("assets", "radvisionai-hero.jpeg")
+if os.path.exists(logo_path):
+    st.image(logo_path, use_column_width=True)
+else:
+    st.warning("Hero logo not found in assets folder.")
 
 # --- Image & DICOM Processing ---
 try:
@@ -192,17 +200,16 @@ if not isinstance(st.session_state.history, list):
 logger.debug("Session state initialized.")
 
 # ------------------------------------------------------------------------------
-# <<< Page Title & Minimal Usage Guide >>>
+# <<< Page Title & Usage Guide >>>
 # ------------------------------------------------------------------------------
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research/informational purposes only. Verify AI outputs with a qualified specialist.")
     st.markdown("**Steps:** 1. Upload image 2. (DICOM W/L if needed) 3. Click 'Run Analysis' 4. Ask Q&A 5. Condition Analysis 6. Confidence & PDF")
-
 st.markdown("---")
 
 # =============================================================================
-# === SIDEBAR CONTROLS: Upload, DICOM W/L, AI Actions =========================
+# === SIDEBAR CONTROLS: Upload, DICOM W/L, and AI Actions ===================
 # =============================================================================
 with st.sidebar:
     st.header("Upload & DICOM")
@@ -279,15 +286,13 @@ with st.sidebar:
                     st.error("Image loading failed. Try another file.")
                     st.session_state.uploaded_file_info = None
 
-    # DICOM W/L
+    # DICOM W/L Sliders
     if st.session_state.is_dicom and pydicom is not None and st.session_state.dicom_dataset and isinstance(st.session_state.get("display_image"), Image.Image):
         with st.expander("DICOM Window/Level", expanded=False):
             try:
                 wc_slider, ww_slider = dicom_wl_sliders(
                     st.session_state.dicom_dataset,
-                    st.session_state.dicom_metadata,
-                    initial_wc=st.session_state.current_display_wc,
-                    initial_ww=st.session_state.current_display_ww
+                    st.session_state.dicom_metadata
                 )
                 if wc_slider is not None and ww_slider is not None:
                     old_wc, old_ww = st.session_state.current_display_wc, st.session_state.current_display_ww
@@ -372,11 +377,9 @@ with st.sidebar:
             st.rerun()
         else:
             st.warning("Perform an analysis or Q&A first.")
-
     if st.button("📄 Generate PDF Data", key="generate_report_data_btn"):
         st.session_state.last_action = "generate_report_data"
         st.rerun()
-
     if st.session_state.pdf_report_bytes:
         fname = f"RadVisionAI_Report_{st.session_state.session_id or 'session'}.pdf"
         st.download_button(
@@ -392,15 +395,12 @@ with st.sidebar:
 # === MAIN CONTENT: Two-Column Layout (Left: Image, Right: Analysis Results)
 # =============================================================================
 col1, col2 = st.columns([2, 3])
-
-# --- Column 1: Image Viewer & ROI Canvas ---
 with col1:
     st.subheader("🖼️ Image Viewer")
     display_img = st.session_state.get("display_image")
     if isinstance(display_img, Image.Image):
         st.image(display_img, caption="Direct Preview", use_column_width=True)
         st.markdown("---")
-
         # Drawable canvas for ROI selection
         if display_img.width > 0 and display_img.height > 0:
             MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT = 700, 600
@@ -445,7 +445,6 @@ with col1:
                         st.rerun()
         else:
             st.warning("Invalid image dimensions for canvas.")
-        
         # If DICOM, show metadata in an expander
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("DICOM Metadata", expanded=False):
@@ -456,8 +455,6 @@ with col1:
                     st.markdown(f"**{k}:** `{disp_val}`")
     else:
         st.info("No image loaded yet.")
-
-# --- Column 2: Analysis Results Tabs ---
 with col2:
     st.subheader("📊 Analysis & Results")
     tab_titles = ["🔬 Initial Analysis", "💬 Q&A History", "🩺 Disease Focus", "📈 Confidence"]
@@ -539,7 +536,6 @@ if current_action:
             st.session_state.disease_analysis = ""
             st.session_state.confidence_score = ""
             logger.info("Initial analysis completed.")
-
         elif current_action == "ask":
             q = st.session_state.question_input_widget.strip()
             if not q:
@@ -572,7 +568,6 @@ if current_action:
                     else:
                         st.session_state.qa_answer += "\n\n**[Fallback Unavailable]**"
                         logger.warning("HF fallback skipped: no token.")
-
         elif current_action == "disease":
             d = st.session_state.disease_select_widget
             if not d:
@@ -586,7 +581,6 @@ if current_action:
                 st.session_state.qa_answer = ""
                 st.session_state.confidence_score = ""
                 logger.info(f"Disease analysis completed for '{d}'.")
-
         elif current_action == "confidence":
             if not (history or st.session_state.initial_analysis or st.session_state.disease_analysis):
                 st.warning("Perform analysis or Q&A first.")
@@ -594,10 +588,9 @@ if current_action:
             else:
                 st.info(f"📊 Estimating confidence{roi_str}...")
                 with st.spinner("Calculating confidence..."):
-                    res = estimate_ai_confidence(img_llm, history, st.session_state.initial_analysis, st.session_state.disease_analysis, roi)
+                    res = estimate_ai_confidence(img_llm, history)
                 st.session_state.confidence_score = res
                 logger.info("Confidence estimation completed.")
-
         elif current_action == "generate_report_data":
             st.info("📄 Generating PDF report data...")
             st.session_state.pdf_report_bytes = None
@@ -618,7 +611,6 @@ if current_action:
                         logger.info("ROI drawn on image for PDF report.")
                     except Exception as e:
                         logger.error(f"Error drawing ROI for report: {e}", exc_info=True)
-
                 full_history = "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history]) if history else "No conversation history."
                 outputs = {
                     "Session ID": st.session_state.session_id,
@@ -629,7 +621,6 @@ if current_action:
                 }
                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
                     outputs["DICOM Metadata"] = "Filtered metadata available."
-
                 with st.spinner("Generating PDF..."):
                     pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_final, outputs)
                 if pdf_bytes:
