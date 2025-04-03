@@ -1,11 +1,11 @@
 """
 Ultra-Advanced RadVision AI: World-Class Medical Imaging Analysis
 
-- DICOM or standard images
-- AI analysis (initial, Q&A, disease-focused, confidence)
-- ROI selection via drawable canvas
-- All action buttons placed in the sidebar
-- Main page uses two columns: left for image, right for analysis results
+- Supports DICOM or standard images
+- Runs multiple AI analyses (initial, Q&A, disease-focused, confidence)
+- Allows ROI selection via a drawable canvas
+- All action buttons are placed in the sidebar
+- Main page uses two columns: left for image and ROI selection, right for analysis results
 """
 
 # --- Core Libraries ---
@@ -66,24 +66,20 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
-
 if pydicom is None:
     logger.error("pydicom module not found. DICOM functionality disabled.")
 else:
     logger.info(f"pydicom version: {PYDICOM_VERSION}")
-
 try:
     import pylibjpeg
     logger.info("pylibjpeg found.")
 except ImportError:
     logger.warning("pylibjpeg not found. For extended DICOM compatibility, install pylibjpeg & pylibjpeg-libjpeg.")
-
 try:
     import gdcm
     logger.info("python-gdcm found.")
 except ImportError:
     logger.warning("python-gdcm not found. Consider installing python-gdcm for improved DICOM compatibility.")
-
 logger.info("--- App Start ---")
 logger.info(f"Logging level: {LOG_LEVEL}")
 logger.info(f"Streamlit version: {st.version}")
@@ -148,11 +144,7 @@ def safe_image_to_data_url(img: Image.Image) -> str:
     try:
         buffered = io.BytesIO()
         fmt = "PNG"
-        img_to_save = img
-        if img.mode not in ['RGB', 'L', 'RGBA']:
-            img_to_save = img.convert('RGB')
-        elif img.mode == 'P':
-            img_to_save = img.convert('RGBA')
+        img_to_save = img if img.mode in ['RGB', 'L', 'RGBA'] else img.convert('RGB')
         img_to_save.save(buffered, format=fmt)
         img_str = base64.b64encode(buffered.getvalue()).decode()
         return f"data:image/{fmt.lower()};base64,{img_str}"
@@ -197,23 +189,20 @@ logger.debug("Session state initialized.")
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research/informational purposes only. Verify AI outputs with a qualified specialist.")
-    st.markdown("**Steps:** 1. Upload image 2. (DICOM W/L if needed) 3. Click 'Run Analysis' 4. Ask Q&A 5. Condition Analysis 6. Confidence & PDF")
-
+    st.markdown("**Steps:** 1. Upload an image 2. Adjust DICOM Window/Level if needed 3. Run analysis and ask questions via the sidebar 4. Review results and generate report")
 st.markdown("---")
 
 # =============================================================================
 # === SIDEBAR CONTROLS: Upload, DICOM W/L, AI Actions =========================
 # =============================================================================
 with st.sidebar:
-    st.header("Upload & DICOM")
+    st.header("Upload & Controls")
     uploaded_file = st.file_uploader(
         "Upload (JPG, PNG, DCM)",
         type=["jpg", "jpeg", "png", "dcm", "dicom"],
         key="file_uploader_widget",
         accept_multiple_files=False
     )
-
-    # Process Upload
     if uploaded_file is not None:
         try:
             file_mtime = getattr(uploaded_file, 'last_modified', None)
@@ -229,7 +218,6 @@ with st.sidebar:
         except Exception as err:
             logger.error(f"File info error: {err}", exc_info=True)
             new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{str(uuid.uuid4())[:8]}"
-
         if new_file_info != st.session_state.get("uploaded_file_info"):
             logger.info(f"New file: {uploaded_file.name}")
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
@@ -269,17 +257,16 @@ with st.sidebar:
                         st.error("Unsupported image format. Please upload JPG, PNG, or DICOM.")
                     except Exception as e:
                         st.error(f"Error processing image: {e}")
+            if success and isinstance(temp_display, Image.Image) and isinstance(temp_processed, Image.Image):
+                st.session_state.display_image = temp_display.convert('RGB') if temp_display.mode != 'RGB' else temp_display
+                st.session_state.processed_image = temp_processed
+                st.success(f"✅ Image '{uploaded_file.name}' processed!")
+                st.rerun()
+            else:
+                st.error("Image loading failed. Try another file.")
+                st.session_state.uploaded_file_info = None
 
-                if success and isinstance(temp_display, Image.Image) and isinstance(temp_processed, Image.Image):
-                    st.session_state.display_image = temp_display.convert('RGB') if temp_display.mode != 'RGB' else temp_display
-                    st.session_state.processed_image = temp_processed
-                    st.success(f"✅ Image '{uploaded_file.name}' processed!")
-                    st.rerun()
-                else:
-                    st.error("Image loading failed. Try another file.")
-                    st.session_state.uploaded_file_info = None
-
-    # DICOM W/L
+    # --- DICOM Window/Level Controls ---
     if st.session_state.is_dicom and pydicom is not None and st.session_state.dicom_dataset and isinstance(st.session_state.get("display_image"), Image.Image):
         with st.expander("DICOM Window/Level", expanded=False):
             try:
@@ -301,11 +288,11 @@ with st.sidebar:
                                 st.session_state.current_display_ww = ww_slider
                                 st.rerun()
                             else:
-                                st.error("Failed W/L update.")
+                                st.error("Failed to update Window/Level.")
             except Exception as e:
                 st.error(f"DICOM W/L error: {e}")
             if st.button("Reset W/L", key="reset_wl_btn"):
-                with st.spinner("Resetting Window/Level..."):
+                with st.spinner("Resetting W/L..."):
                     try:
                         wc_reset, ww_reset = get_default_wl(st.session_state.dicom_dataset)
                         st.session_state.current_display_wc = wc_reset
@@ -319,17 +306,13 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ============== AI ACTIONS IN THE SIDEBAR ==============
+    # --- AI Actions in Sidebar ---
     st.header("AI Actions")
-
-    # 1) Run Initial Analysis
     if st.button("▶️ Run Initial Analysis", key="analyze_btn"):
         st.session_state.last_action = "analyze"
         st.rerun()
-
-    # 2) Ask AI Question
     st.subheader("❓ Ask AI Question")
-    st.caption("Optionally, draw ROI in the image viewer (left).")
+    st.caption("Optionally, draw ROI on the image (left).")
     question_input = st.text_area(
         "Question:",
         height=80,
@@ -342,8 +325,6 @@ with st.sidebar:
             st.rerun()
         else:
             st.warning("Please enter a question before asking.")
-
-    # 3) Focused Condition Analysis
     st.subheader("🎯 Condition Analysis")
     DISEASE_OPTIONS = [
         "Pneumonia", "Lung Cancer", "Stroke", "Fracture", "Appendicitis",
@@ -362,8 +343,6 @@ with st.sidebar:
             st.rerun()
         else:
             st.warning("Please select a condition first.")
-
-    # 4) Confidence & Report
     st.subheader("📊 Confidence & Report")
     can_estimate = bool(st.session_state.history or st.session_state.initial_analysis or st.session_state.disease_analysis)
     if st.button("📈 Estimate Confidence", key="confidence_btn", disabled=not can_estimate):
@@ -371,12 +350,10 @@ with st.sidebar:
             st.session_state.last_action = "confidence"
             st.rerun()
         else:
-            st.warning("Perform an analysis or Q&A first.")
-
+            st.warning("Perform analysis or Q&A first.")
     if st.button("📄 Generate PDF Data", key="generate_report_data_btn"):
         st.session_state.last_action = "generate_report_data"
         st.rerun()
-
     if st.session_state.pdf_report_bytes:
         fname = f"RadVisionAI_Report_{st.session_state.session_id or 'session'}.pdf"
         st.download_button(
@@ -389,7 +366,7 @@ with st.sidebar:
         st.caption("PDF report data generated successfully.")
 
 # =============================================================================
-# === MAIN CONTENT: Two-Column Layout (Left: Image, Right: Analysis Results)
+# === MAIN CONTENT: Two-Column Layout (Left: Image, Right: Analysis Results) ===
 # =============================================================================
 col1, col2 = st.columns([2, 3])
 
@@ -400,8 +377,6 @@ with col1:
     if isinstance(display_img, Image.Image):
         st.image(display_img, caption="Direct Preview", use_column_width=True)
         st.markdown("---")
-
-        # Drawable canvas for ROI selection
         if display_img.width > 0 and display_img.height > 0:
             MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT = 700, 600
             img_w, img_h = display_img.size
@@ -413,7 +388,7 @@ with col1:
                 canvas_width = int(canvas_height * aspect_ratio)
             canvas_width = max(int(canvas_width), 150)
             canvas_height = max(int(canvas_height), 150)
-            st.caption("Draw a rectangle to select ROI. Then use 'Ask AI' or 'Run Condition Analysis' in the sidebar.")
+            st.caption("Draw a rectangle to select ROI, then use AI Actions in the sidebar.")
             canvas_result = st_canvas(
                 fill_color="rgba(255, 165, 0, 0.2)",
                 stroke_width=2,
@@ -427,26 +402,30 @@ with col1:
                 key="drawable_canvas"
             )
             st.session_state.canvas_drawing = canvas_result.json_data
+            # --- ROI Parsing & Scaling ---
             if canvas_result.json_data and canvas_result.json_data.get("objects"):
                 last_obj = canvas_result.json_data["objects"][-1]
                 if last_obj["type"] == "rect":
+                    # Get canvas coordinates and any applied scaling
                     scaleX = last_obj.get("scaleX", 1)
                     scaleY = last_obj.get("scaleY", 1)
                     l = int(last_obj["left"])
                     t = int(last_obj["top"])
                     w = int(last_obj["width"] * scaleX)
                     h = int(last_obj["height"] * scaleY)
-                    sx, sy = img_w / canvas_width, img_h / canvas_height
-                    ol, ot = int(l * sx), int(t * sy)
-                    ow, oh = int(w * sx), int(h * sy)
-                    new_roi = {"left": ol, "top": ot, "width": ow, "height": oh}
+                    # Calculate scale factors from canvas to original image dimensions
+                    ratio_x = img_w / canvas_width
+                    ratio_y = img_h / canvas_height
+                    final_left = int(l * ratio_x)
+                    final_top  = int(t * ratio_y)
+                    final_w    = int(w * ratio_x)
+                    final_h    = int(h * ratio_y)
+                    new_roi = {"left": final_left, "top": final_top, "width": final_w, "height": final_h}
                     if st.session_state.roi_coords != new_roi:
                         st.session_state.roi_coords = new_roi
                         st.rerun()
         else:
             st.warning("Invalid image dimensions for canvas.")
-        
-        # If DICOM, show metadata in an expander
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("DICOM Metadata", expanded=False):
                 for k, v in st.session_state.dicom_metadata.items():
@@ -460,7 +439,7 @@ with col1:
 # --- Column 2: Analysis Results Tabs ---
 with col2:
     st.subheader("📊 Analysis & Results")
-    tab_titles = ["🔬 Initial Analysis", "💬 Q&A History", "🩺 Disease Focus", "📈 Confidence"]
+    tab_titles = ["🔬 Initial Analysis", "💬 Q&A History", "🩺 Condition Analysis", "📈 Confidence"]
     tabs = st.tabs(tab_titles)
     with tabs[0]:
         st.text_area(
@@ -491,7 +470,7 @@ with col2:
             st.caption("No conversation history.")
     with tabs[2]:
         st.text_area(
-            "Disease-Specific Analysis",
+            "Condition-Specific Findings",
             value=st.session_state.disease_analysis or "No focused analysis performed.",
             height=450,
             key="output_disease",
@@ -514,15 +493,14 @@ if current_action:
     logger.info(f"Handling action: {current_action}")
     if current_action != "generate_report_data" and not isinstance(st.session_state.processed_image, Image.Image):
         st.error(f"Cannot perform '{current_action}': Processed image is invalid.")
-        logger.error(f"Action '{current_action}' aborted: invalid processed_image.")
+        logger.error(f"Action '{current_action}' aborted: Invalid processed_image.")
         st.session_state.last_action = None
         st.stop()
     if not st.session_state.session_id:
         st.error(f"Cannot perform '{current_action}': Session ID missing.")
-        logger.error(f"Action '{current_action}' aborted: missing session ID.")
+        logger.error(f"Action '{current_action}' aborted: Missing session ID.")
         st.session_state.last_action = None
         st.stop()
-
     img_llm = st.session_state.processed_image
     roi = st.session_state.roi_coords
     roi_str = " (ROI selected)" if roi else ""
@@ -539,7 +517,6 @@ if current_action:
             st.session_state.disease_analysis = ""
             st.session_state.confidence_score = ""
             logger.info("Initial analysis completed.")
-
         elif current_action == "ask":
             q = st.session_state.question_input_widget.strip()
             if not q:
@@ -572,7 +549,6 @@ if current_action:
                     else:
                         st.session_state.qa_answer += "\n\n**[Fallback Unavailable]**"
                         logger.warning("HF fallback skipped: no token.")
-
         elif current_action == "disease":
             d = st.session_state.disease_select_widget
             if not d:
@@ -586,7 +562,6 @@ if current_action:
                 st.session_state.qa_answer = ""
                 st.session_state.confidence_score = ""
                 logger.info(f"Disease analysis completed for '{d}'.")
-
         elif current_action == "confidence":
             if not (history or st.session_state.initial_analysis or st.session_state.disease_analysis):
                 st.warning("Perform analysis or Q&A first.")
@@ -597,7 +572,6 @@ if current_action:
                     res = estimate_ai_confidence(img_llm, history, st.session_state.initial_analysis, st.session_state.disease_analysis, roi)
                 st.session_state.confidence_score = res
                 logger.info("Confidence estimation completed.")
-
         elif current_action == "generate_report_data":
             st.info("📄 Generating PDF report data...")
             st.session_state.pdf_report_bytes = None
@@ -609,6 +583,7 @@ if current_action:
                 img_final = img_for_report
                 if roi:
                     try:
+                        from PIL import ImageDraw
                         img_copy = img_for_report.copy().convert("RGB")
                         draw = ImageDraw.Draw(img_copy)
                         x0, y0 = roi['left'], roi['top']
@@ -618,7 +593,6 @@ if current_action:
                         logger.info("ROI drawn on image for PDF report.")
                     except Exception as e:
                         logger.error(f"Error drawing ROI for report: {e}", exc_info=True)
-
                 full_history = "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history]) if history else "No conversation history."
                 outputs = {
                     "Session ID": st.session_state.session_id,
@@ -629,7 +603,6 @@ if current_action:
                 }
                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
                     outputs["DICOM Metadata"] = "Filtered metadata available."
-
                 with st.spinner("Generating PDF..."):
                     pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_final, outputs)
                 if pdf_bytes:
@@ -644,11 +617,11 @@ if current_action:
             logger.warning(f"Unknown action: '{current_action}'")
     except Exception as e:
         st.error(f"Error during '{current_action}': {e}")
-        logger.critical(f"Action error '{current_action}': {e}", exc_info=True)
+        logger.critical(f"Action '{current_action}' error: {e}", exc_info=True)
     finally:
         st.session_state.last_action = None
         logger.debug(f"Action '{current_action}' completed.")
-        st.rerun()
+        st.experimental_rerun()
 
 # =============================================================================
 # === Footer & Additional UI Elements =======================================
