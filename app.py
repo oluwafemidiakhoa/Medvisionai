@@ -1,10 +1,10 @@
 """
-Unified RadVision AI: World-Class Medical Imaging Analysis
+Ultra-Advanced RadVision AI: World-Class Medical Imaging Analysis
 
-- Shows a direct st.image preview before the drawable canvas
-- Maintains AI Actions (Initial Analysis, Ask AI, Condition Analysis, Confidence & Report)
-- Handles DICOM (with window/level) and standard images
-- Provides advanced logging and session state management
+This Streamlit app processes DICOM or standard images, supports advanced AI analysis,
+and displays a direct image preview with an integrated drawable canvas for ROI selection.
+AI action buttons (e.g., "Run Initial Analysis", "Ask AI", etc.) are placed within the
+image viewer column for immediate access, while analysis results appear in a separate panel.
 """
 
 # --- Core Libraries ---
@@ -75,13 +75,13 @@ try:
     import pylibjpeg
     logger.info("pylibjpeg found.")
 except ImportError:
-    logger.warning("pylibjpeg not found. For extended DICOM compatibility, install pylibjpeg & pylibjpeg-libjpeg.")
+    logger.warning("pylibjpeg not found. Install pylibjpeg & pylibjpeg-libjpeg for extended DICOM compatibility.")
 
 try:
     import gdcm
     logger.info("python-gdcm found.")
 except ImportError:
-    logger.warning("python-gdcm not found. For improved DICOM compatibility, consider installing python-gdcm.")
+    logger.warning("python-gdcm not found. Consider installing python-gdcm for improved DICOM compatibility.")
 
 logger.info("--- App Start ---")
 logger.info(f"Logging level set to {LOG_LEVEL}")
@@ -138,7 +138,7 @@ except ImportError as import_error:
     st.stop()
 
 # ------------------------------------------------------------------------------
-# Helper Function: Convert PIL Image to Data URL
+# Helper: Convert PIL Image to Data URL
 # ------------------------------------------------------------------------------
 def safe_image_to_data_url(img: Image.Image) -> str:
     if not isinstance(img, Image.Image):
@@ -196,7 +196,7 @@ logger.debug("Session state initialized.")
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research/informational purposes only. Verify AI outputs with a qualified specialist.")
-    st.markdown("**Quick Steps:** 1. Upload image 2. Adjust DICOM W/L if needed 3. Run Analysis 4. Ask Q&A 5. Generate Report")
+    st.markdown("**Quick Steps:** 1. Upload image 2. Adjust DICOM W/L if needed 3. Run Analysis 4. Ask Questions 5. Generate Report")
 st.markdown("---")
 
 # =============================================================================
@@ -211,7 +211,7 @@ with st.sidebar:
     else:
         logger.warning(f"Sidebar logo not found at: {logo_path}")
 
-    st.header("Image Upload & Controls")
+    st.header("Upload & Processing")
     uploaded_file = st.file_uploader(
         "Upload Image (JPG, PNG, DCM)",
         type=["jpg", "jpeg", "png", "dcm", "dicom"],
@@ -320,7 +320,7 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # DICOM Window/Level Controls
+    # DICOM Window/Level Controls (if applicable)
     if st.session_state.is_dicom and pydicom is not None and st.session_state.dicom_dataset and isinstance(st.session_state.get("display_image"), Image.Image):
         with st.expander("DICOM Window/Level", expanded=False):
             try:
@@ -371,22 +371,23 @@ with st.sidebar:
     st.markdown("---")
 
 # =============================================================================
-# === MAIN PANEL DISPLAYS =====================================================
+# === MAIN PANEL: Two-Column Layout ========================================
 # =============================================================================
+# Column 1: Image Viewer and AI Actions (on the same side)
 col1, col2 = st.columns([2, 3])
 
-# --- Column 1: Image Viewer & ROI Canvas ---
+# --- Column 1: Image Viewer & ROI Canvas with Action Buttons ---
 with col1:
-    st.subheader("🖼️ Image Viewer")
+    st.subheader("🖼️ Image Viewer & Controls")
     display_img = st.session_state.get("display_image")
     logger.debug(f"Display image type: {type(display_img)}")
-
-    # 1) Always show a direct st.image preview for debugging
+    
     if isinstance(display_img, Image.Image):
+        # Direct image preview for immediate feedback
         st.image(display_img, caption="Direct Preview", use_column_width=True)
         st.markdown("---")
-
-        # 2) Then show the drawable canvas
+        
+        # Drawable canvas for ROI selection
         MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT = 700, 600
         img_w, img_h = display_img.size
         aspect_ratio = img_w / img_h if img_h else 1
@@ -397,8 +398,8 @@ with col1:
             canvas_width = int(canvas_height * aspect_ratio)
         canvas_width = max(int(canvas_width), 150)
         canvas_height = max(int(canvas_height), 150)
-        st.caption("Click and drag on the image below to select a Region of Interest (ROI).")
-
+        st.caption("Draw a rectangle on the image to select a Region of Interest (ROI).")
+        
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.2)",
             stroke_width=2,
@@ -411,7 +412,6 @@ with col1:
             initial_drawing=st.session_state.get("canvas_drawing", None),
             key="drawable_canvas"
         )
-
         st.session_state.canvas_drawing = canvas_result.json_data
         if canvas_result.json_data and canvas_result.json_data.get("objects"):
             last_obj = canvas_result.json_data["objects"][-1]
@@ -430,8 +430,8 @@ with col1:
                     st.session_state.roi_coords = new_roi
                     logger.info(f"ROI updated: {new_roi}")
                     st.rerun()
-
-        # 3) Optionally show DICOM metadata
+        
+        # Display DICOM metadata if available
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("DICOM Metadata", expanded=False):
                 for k, v in st.session_state.dicom_metadata.items():
@@ -439,13 +439,72 @@ with col1:
                     if len(disp_val) > 100:
                         disp_val = disp_val[:100] + "..."
                     st.markdown(f"**{k}:** `{disp_val}`")
-
-    else:
-        st.info("No image to display. Please upload a valid file.")
-        st.markdown(
-            "<div style='height: 400px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; color: #aaa; font-style: italic;'>No image loaded.</div>",
-            unsafe_allow_html=True
+                    
+        st.markdown("---")
+        
+        # --- AI Actions (Buttons) within Column 1 ---
+        st.subheader("AI Actions")
+        if st.button("▶️ Run Initial Analysis", key="analyze_btn", use_container_width=True):
+            st.session_state.last_action = "analyze"
+            st.rerun()
+        st.markdown("---")
+        
+        st.subheader("❓ Ask AI Question")
+        st.caption("Optionally, draw ROI on the image viewer.")
+        question_input = st.text_area(
+            "e.g., Any abnormalities in the selected area?",
+            height=80,
+            key="question_input_widget",
+            placeholder="Ask AI about the image or ROI..."
         )
+        if st.button("💬 Ask AI", key="ask_btn", use_container_width=True):
+            if question_input and question_input.strip():
+                st.session_state.last_action = "ask"
+                st.rerun()
+            else:
+                st.warning("Please enter a question before asking.")
+        
+        st.markdown("---")
+        
+        st.subheader("🎯 Focused Condition Analysis")
+        DISEASE_OPTIONS = ["Pneumonia", "Lung Cancer", "Stroke", "Fracture", "Appendicitis",
+                           "Tuberculosis", "COVID-19", "Pulmonary Embolism", "Brain Tumor",
+                           "Arthritis", "Osteoporosis", "Cardiomegaly", "Aortic Aneurysm",
+                           "Bowel Obstruction", "Mass/Nodule", "Effusion"]
+        disease_select = st.selectbox("Select Condition:", options=[""] + sorted(DISEASE_OPTIONS), key="disease_select_widget")
+        if st.button("🩺 Run Condition Analysis", key="disease_btn", use_container_width=True):
+            if disease_select:
+                st.session_state.last_action = "disease"
+                st.rerun()
+            else:
+                st.warning("Please select a condition first.")
+        
+        st.markdown("---")
+        
+        with st.expander("📊 Confidence & Report", expanded=True):
+            can_estimate = bool(st.session_state.history or st.session_state.initial_analysis or st.session_state.disease_analysis)
+            if st.button("📈 Estimate Confidence", key="confidence_btn", disabled=not can_estimate, use_container_width=True):
+                if can_estimate:
+                    st.session_state.last_action = "confidence"
+                    st.rerun()
+                else:
+                    st.warning("No context available. Perform analysis or ask a question first.")
+            if st.button("📄 Generate PDF Data", key="generate_report_data_btn", use_container_width=True):
+                st.session_state.last_action = "generate_report_data"
+                st.rerun()
+            if st.session_state.pdf_report_bytes:
+                fname = f"RadVisionAI_Report_{st.session_state.session_id or 'session'}.pdf"
+                st.download_button(
+                    label="⬇️ Download PDF Report",
+                    data=st.session_state.pdf_report_bytes,
+                    file_name=fname,
+                    mime="application/pdf",
+                    key="download_pdf_button"
+                )
+                st.caption("PDF report data generated successfully.")
+    else:
+        st.info("No image available. Please upload a valid file.")
+        st.markdown("<div style='height: 400px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; color: #aaa; font-style: italic;'>No image loaded.</div>", unsafe_allow_html=True)
 
 # --- Column 2: Analysis Results Tabs ---
 with col2:
@@ -495,81 +554,6 @@ with col2:
             key="output_confidence",
             disabled=True
         )
-
-# =============================================================================
-# === AI ACTIONS (Under Main Panel) ==========================================
-# =============================================================================
-st.markdown("---")
-st.header("AI Actions")
-
-if st.session_state.display_image:
-    # 1) Run Initial Analysis
-    if st.button("▶️ Run Initial Analysis", key="analyze_btn"):
-        st.session_state.last_action = "analyze"
-        st.rerun()
-
-    st.markdown("---")
-
-    # 2) Ask AI Question
-    st.subheader("❓ Ask AI Question")
-    st.caption("Optionally, draw ROI on image viewer.")
-    question_input = st.text_area(
-        "e.g., Any abnormalities in the selected area?",
-        height=80,
-        key="question_input_widget",
-        placeholder="Ask AI about the image or selected region..."
-    )
-    if st.button("💬 Ask AI", key="ask_btn"):
-        if question_input and question_input.strip():
-            st.session_state.last_action = "ask"
-            st.rerun()
-        else:
-            st.warning("Please enter a question before asking.")
-
-    st.markdown("---")
-
-    # 3) Focused Condition Analysis
-    st.subheader("🎯 Focused Condition Analysis")
-    DISEASE_OPTIONS = ["Pneumonia", "Lung Cancer", "Stroke", "Fracture", "Appendicitis",
-                       "Tuberculosis", "COVID-19", "Pulmonary Embolism", "Brain Tumor",
-                       "Arthritis", "Osteoporosis", "Cardiomegaly", "Aortic Aneurysm",
-                       "Bowel Obstruction", "Mass/Nodule", "Effusion"]
-    disease_select = st.selectbox("Select Condition:", options=[""] + sorted(DISEASE_OPTIONS), key="disease_select_widget")
-    if st.button("🩺 Run Condition Analysis", key="disease_btn"):
-        if disease_select:
-            st.session_state.last_action = "disease"
-            st.rerun()
-        else:
-            st.warning("Please select a condition first.")
-
-    st.markdown("---")
-
-    # 4) Confidence & Report
-    with st.expander("📊 Confidence & Report", expanded=True):
-        can_estimate = bool(st.session_state.history or st.session_state.initial_analysis or st.session_state.disease_analysis)
-        if st.button("📈 Estimate Confidence", key="confidence_btn", disabled=not can_estimate):
-            if can_estimate:
-                st.session_state.last_action = "confidence"
-                st.rerun()
-            else:
-                st.warning("No context available. Perform analysis or ask a question first.")
-
-        if st.button("📄 Generate PDF Data", key="generate_report_data_btn"):
-            st.session_state.last_action = "generate_report_data"
-            st.rerun()
-
-        if st.session_state.pdf_report_bytes:
-            fname = f"RadVisionAI_Report_{st.session_state.session_id or 'session'}.pdf"
-            st.download_button(
-                label="⬇️ Download PDF Report",
-                data=st.session_state.pdf_report_bytes,
-                file_name=fname,
-                mime="application/pdf",
-                key="download_pdf_button"
-            )
-            st.caption("PDF report data generated successfully.")
-else:
-    st.info("Please upload an image to access AI Actions.")
 
 # =============================================================================
 # === ACTION HANDLING LOGIC ===================================================
@@ -630,39 +614,39 @@ if current_action:
                             fb_disp = f"**[Fallback: {HF_VQA_MODEL_ID}]**\n\n{fb_ans}"
                             st.session_state.qa_answer += fb_disp
                             st.session_state.history.append((f"[Fallback] {q}", fb_disp))
-                            logger.info("HF fallback success.")
+                            logger.info("HF fallback successful.")
                         else:
                             st.session_state.qa_answer += f"\n\n**[Fallback Error]:** {fb_ans}"
-                            logger.error(f"HF fallback fail: {fb_ans}")
+                            logger.error(f"HF fallback failure: {fb_ans}")
                     else:
                         st.session_state.qa_answer += "\n\n**[Fallback Unavailable]**"
                         logger.warning("HF fallback skipped: no token.")
-
+        
         elif current_action == "disease":
             d = st.session_state.disease_select_widget
             if not d:
                 st.warning("Please select a condition.")
-                logger.warning("Disease: no selection.")
+                logger.warning("Disease analysis: no condition selected.")
             else:
-                st.info(f"🩺 Focused analysis: '{d}'{roi_str}...")
+                st.info(f"🩺 Running focused analysis for '{d}'{roi_str}...")
                 with st.spinner(f"Analyzing '{d}'..."):
                     result = run_disease_analysis(img_llm, d, roi)
                 st.session_state.disease_analysis = result
                 st.session_state.qa_answer = ""
                 st.session_state.confidence_score = ""
-                logger.info(f"Disease analysis done for '{d}'.")
-
+                logger.info(f"Disease analysis completed for '{d}'.")
+        
         elif current_action == "confidence":
             if not (history or st.session_state.initial_analysis or st.session_state.disease_analysis):
-                st.warning("No context. Perform analysis or Q&A first.")
-                logger.warning("Confidence skip: no context.")
+                st.warning("Please perform analysis or ask a question first.")
+                logger.warning("Confidence estimation skipped: no context available.")
             else:
                 st.info(f"📊 Estimating confidence{roi_str}...")
                 with st.spinner("Calculating confidence..."):
                     res = estimate_ai_confidence(img_llm, history, st.session_state.initial_analysis, st.session_state.disease_analysis, roi)
                 st.session_state.confidence_score = res
-                logger.info("Confidence estimation done.")
-
+                logger.info("Confidence estimation completed.")
+        
         elif current_action == "generate_report_data":
             st.info("📄 Generating PDF report data...")
             st.session_state.pdf_report_bytes = None
@@ -680,10 +664,9 @@ if current_action:
                         x1, y1 = x0 + roi['width'], y0 + roi['height']
                         draw.rectangle([x0, y0, x1, y1], outline="red", width=3)
                         img_final = img_copy
-                        logger.info("ROI drawn for PDF.")
+                        logger.info("ROI drawn on image for PDF report.")
                     except Exception as e:
                         logger.error(f"Error drawing ROI for report: {e}", exc_info=True)
-
                 full_history = "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history]) if history else "No conversation history."
                 outputs = {
                     "Session ID": st.session_state.session_id,
@@ -694,20 +677,18 @@ if current_action:
                 }
                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
                     outputs["DICOM Metadata"] = "Filtered metadata available."
-
                 with st.spinner("Generating PDF..."):
                     pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_final, outputs)
                 if pdf_bytes:
                     st.session_state.pdf_report_bytes = pdf_bytes
                     st.success("PDF report data generated successfully.")
-                    logger.info("PDF report generation ok.")
+                    logger.info("PDF report generation successful.")
                 else:
                     st.error("Failed to generate PDF report data.")
                     logger.error("PDF generation returned None.")
         else:
             st.warning(f"Unknown action: '{current_action}'")
             logger.warning(f"Unknown action: '{current_action}'")
-
     except Exception as e:
         st.error(f"Error during '{current_action}': {e}")
         logger.critical(f"Action error '{current_action}': {e}", exc_info=True)
