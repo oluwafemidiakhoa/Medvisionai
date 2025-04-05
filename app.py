@@ -15,7 +15,7 @@ import logging
 import base64
 from typing import Any, Dict, Optional, Tuple, List
 import copy
-import random  # for potential future enhancements
+import random  # For Tip of the Day
 
 # --- Drawable Canvas ---
 try:
@@ -46,6 +46,16 @@ if os.path.exists(logo_path):
     st.image(logo_path, width=400)
 else:
     st.warning("Hero logo not found in assets folder.")
+
+# --- Tip of the Day in Sidebar ---
+TIPS = [
+    "Tip: Use Demo Mode to quickly see how the analysis works.",
+    "Tip: Draw an ROI to focus the AI on a specific region of the image.",
+    "Tip: Adjust DICOM window/level sliders for optimal contrast.",
+    "Tip: Review the conversation history to refine your questions.",
+    "Tip: Generate a PDF report to save your analysis for later review."
+]
+st.sidebar.info(random.choice(TIPS))
 
 # --- Image & DICOM Processing ---
 try:
@@ -147,7 +157,6 @@ if st.sidebar.button("🗑️ Clear ROI", help="Clear the current ROI selection"
     st.session_state.clear_roi = True
     st.experimental_rerun()
 
-# After session state initialization, show a success message if ROI was cleared
 if st.session_state.get("clear_roi", False):
     st.success("ROI has been cleared!")
     st.balloons()
@@ -217,6 +226,10 @@ for key, default_value in DEFAULT_STATE.items():
 if not isinstance(st.session_state.history, list):
     st.session_state.history = []
 logger.debug("Session state initialized.")
+
+# --- Ensure Session ID Exists ---
+if not st.session_state.get("session_id"):
+    st.session_state.session_id = str(uuid.uuid4())[:8]
 
 # --- Page Title & Usage Guide ---
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
@@ -522,6 +535,10 @@ with col2:
         )
 
 # --- ACTION HANDLING LOGIC ---
+# Ensure a session ID is present (should be set during upload/demo)
+if not st.session_state.get("session_id"):
+    st.session_state.session_id = str(uuid.uuid4())[:8]
+
 current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Handling action: {current_action}")
@@ -643,7 +660,7 @@ if current_action:
                     st.session_state.pdf_report_bytes = pdf_bytes
                     st.success("PDF report data generated successfully.")
                     logger.info("PDF report generation successful.")
-                    st.balloons()  # Wow effect!
+                    st.balloons()  # WOW effect!
                 else:
                     st.error("Failed to generate PDF report data.")
                     logger.error("PDF generation returned None.")
