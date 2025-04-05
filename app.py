@@ -1,7 +1,7 @@
 # --- Import Streamlit and set page configuration as the very first command ---
 import streamlit as st
 st.set_page_config(
-    page_title="RadVision AI",
+    page_title="RadVision AI Advanced",
     layout="wide",
     page_icon="⚕️",
     initial_sidebar_state="expanded"
@@ -25,7 +25,7 @@ except ImportError:
     st.error("CRITICAL ERROR: streamlit-drawable-canvas is not installed. Please run: pip install streamlit-drawable-canvas")
     st.stop()
 
-# --- Display Custom CSS for a Polished Look ---
+# --- Custom CSS for a polished look ---
 st.markdown("""
 <style>
     body {
@@ -143,11 +143,17 @@ except ImportError as import_error:
 if st.sidebar.button("🗑️ Clear ROI", help="Clear the current Region of Interest selection"):
     st.session_state.roi_coords = None
     st.session_state.canvas_drawing = None
-    st.experimental_rerun()
+    try:
+        st.experimental_rerun()
+    except Exception as e:
+        st.error("Error resetting ROI. Please reload the page.")
 
 if st.sidebar.button("🔄 Reset Session", help="Clear all session data and restart the app"):
     st.session_state.clear()
-    st.experimental_rerun()
+    try:
+        st.experimental_rerun()
+    except Exception as e:
+        st.error("Error resetting session. Please reload the page.")
 
 # --- Demo Mode: Load Demo Image ---
 demo_mode = st.sidebar.checkbox("Demo Mode", help="Load a demo image and sample analysis")
