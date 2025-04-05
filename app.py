@@ -20,6 +20,20 @@ import copy
 # --- Streamlit ---
 import streamlit as st
 
+# --- Custom CSS for a polished look ---
+st.markdown("""
+<style>
+    body {
+        font-family: 'Helvetica', sans-serif;
+        background-color: #f9f9f9;
+    }
+    .css-1d391kg {  /* Sidebar background */
+        background-color: #ffffff;
+    }
+    footer { text-align: center; font-size: 0.8em; color: #888888; }
+</style>
+""", unsafe_allow_html=True)
+
 # --- Drawable Canvas ---
 try:
     from streamlit_drawable_canvas import st_canvas
@@ -42,7 +56,7 @@ st.set_page_config(
 # --- Display Hero Logo (scaled down) ---
 logo_path = os.path.join("assets", "radvisionai-hero.jpeg")
 if os.path.exists(logo_path):
-    st.image(logo_path, width=400)  # Display logo at 400px width
+    st.image(logo_path, width=400)
 else:
     st.warning("Hero logo not found in assets folder.")
 
@@ -145,11 +159,31 @@ except ImportError as import_error:
     logger.critical(f"Failed import: {import_error}", exc_info=True)
     st.stop()
 
-# --- Additional UI: Clear ROI Button ---
-if st.sidebar.button("🗑️ Clear ROI"):
+# --- Additional UI: Clear ROI & Reset Session Buttons ---
+if st.sidebar.button("🗑️ Clear ROI", help="Clear the current Region of Interest selection"):
     st.session_state.roi_coords = None
     st.session_state.canvas_drawing = None
     st.experimental_rerun()
+
+if st.sidebar.button("🔄 Reset Session", help="Clear all session data and restart the app"):
+    st.session_state.clear()
+    st.experimental_rerun()
+
+# --- Demo Mode: Load Demo Image ---
+demo_mode = st.sidebar.checkbox("Demo Mode", help="Load a demo image and sample analysis")
+if demo_mode and "demo_loaded" not in st.session_state:
+    demo_path = os.path.join("assets", "demo.png")
+    if os.path.exists(demo_path):
+        demo_img = Image.open(demo_path).convert("RGB")
+        st.session_state.display_image = demo_img
+        st.session_state.processed_image = demo_img
+        st.session_state.session_id = "demo"
+        st.session_state.history = [("Demo Question", "Demo Answer")]
+        st.session_state.initial_analysis = "This is a demo analysis of the provided image."
+        st.session_state.demo_loaded = True
+        st.success("Demo mode activated! Demo image and sample analysis loaded.")
+    else:
+        st.sidebar.warning("Demo image not found in assets folder.")
 
 # ------------------------------------------------------------------------------
 # Helper: Convert PIL Image to Data URL
@@ -207,10 +241,10 @@ logger.debug("Session state initialized.")
 # ------------------------------------------------------------------------------
 # <<< Page Title & Usage Guide >>>
 # ------------------------------------------------------------------------------
-st.title("⚕️ RadVisionAI QA Advanced: AI-Assisted Image Analysis")
+st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research/informational purposes only. Verify AI outputs with a qualified specialist.")
-    st.markdown("**Steps:** 1. Upload image 2. (DICOM W/L if needed) 3. Click 'Run Analysis' 4. Ask Q&A 5. Condition Analysis 6. Confidence & PDF")
+    st.markdown("**Steps:** 1. Upload an image (or enable Demo Mode) 2. (Adjust DICOM W/L if needed) 3. Run analysis 4. Ask questions 5. Perform condition analysis 6. Estimate confidence & generate PDF report")
 st.markdown("---")
 
 # =============================================================================
@@ -222,7 +256,8 @@ with st.sidebar:
         "Upload (JPG, PNG, DCM)",
         type=["jpg", "jpeg", "png", "dcm", "dicom"],
         key="file_uploader_widget",
-        accept_multiple_files=False
+        accept_multiple_files=False,
+        help="Upload a JPG, PNG, or DICOM file for analysis."
     )
 
     # Process Upload
@@ -314,7 +349,7 @@ with st.sidebar:
                                 st.error("Failed W/L update.")
             except Exception as e:
                 st.error(f"DICOM W/L error: {e}")
-            if st.button("Reset W/L", key="reset_wl_btn"):
+            if st.button("Reset W/L", key="reset_wl_btn", help="Reset window and level to default values"):
                 with st.spinner("Resetting Window/Level..."):
                     try:
                         wc_reset, ww_reset = get_default_wl(st.session_state.dicom_dataset)
@@ -333,7 +368,7 @@ with st.sidebar:
     st.header("AI Actions")
 
     # 1) Run Initial Analysis
-    if st.button("▶️ Run Initial Analysis", key="analyze_btn"):
+    if st.button("▶️ Run Initial Analysis", key="analyze_btn", help="Run a preliminary analysis on the image"):
         st.session_state.last_action = "analyze"
         st.rerun()
 
@@ -344,9 +379,10 @@ with st.sidebar:
         "Question:",
         height=80,
         key="question_input_widget",
-        placeholder="Ask AI about the image or ROI..."
+        placeholder="Ask AI about the image or ROI...",
+        help="Enter your question. Use the drawn ROI to focus the analysis if needed."
     )
-    if st.button("💬 Ask AI", key="ask_btn"):
+    if st.button("💬 Ask AI", key="ask_btn", help="Submit your question to the AI"):
         if question_input.strip():
             st.session_state.last_action = "ask"
             st.rerun()
@@ -364,9 +400,10 @@ with st.sidebar:
     disease_select = st.selectbox(
         "Select Condition:",
         options=[""] + sorted(DISEASE_OPTIONS),
-        key="disease_select_widget"
+        key="disease_select_widget",
+        help="Select a condition for focused disease analysis."
     )
-    if st.button("🩺 Run Condition Analysis", key="disease_btn"):
+    if st.button("🩺 Run Condition Analysis", key="disease_btn", help="Run analysis focused on the selected condition"):
         if disease_select:
             st.session_state.last_action = "disease"
             st.rerun()
@@ -376,13 +413,13 @@ with st.sidebar:
     # 4) Confidence & Report
     st.subheader("📊 Confidence & Report")
     can_estimate = bool(st.session_state.history or st.session_state.initial_analysis or st.session_state.disease_analysis)
-    if st.button("📈 Estimate Confidence", key="confidence_btn", disabled=not can_estimate):
+    if st.button("📈 Estimate Confidence", key="confidence_btn", disabled=not can_estimate, help="Estimate the AI's confidence in its analysis"):
         if can_estimate:
             st.session_state.last_action = "confidence"
             st.rerun()
         else:
             st.warning("Perform an analysis or Q&A first.")
-    if st.button("📄 Generate PDF Data", key="generate_report_data_btn"):
+    if st.button("📄 Generate PDF Data", key="generate_report_data_btn", help="Generate a PDF report of the session"):
         st.session_state.last_action = "generate_report_data"
         st.rerun()
     if st.session_state.pdf_report_bytes:
@@ -392,7 +429,8 @@ with st.sidebar:
             data=st.session_state.pdf_report_bytes,
             file_name=fname,
             mime="application/pdf",
-            key="download_pdf_button"
+            key="download_pdf_button",
+            help="Download the PDF report of your session"
         )
         st.caption("PDF report data generated successfully.")
 
