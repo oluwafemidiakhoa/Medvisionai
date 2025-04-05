@@ -15,6 +15,7 @@ import logging
 import base64
 from typing import Any, Dict, Optional, Tuple, List
 import copy
+import random  # for potential future enhancements
 
 # --- Drawable Canvas ---
 try:
@@ -139,21 +140,18 @@ except ImportError as import_error:
     logger.critical(f"Failed import: {import_error}", exc_info=True)
     st.stop()
 
-# --- Additional UI: Clear ROI & Reset Session Buttons ---
-if st.sidebar.button("🗑️ Clear ROI", help="Clear the current Region of Interest selection"):
+# --- Additional UI: Clear ROI Button with Wow Effect ---
+if st.sidebar.button("🗑️ Clear ROI", help="Clear the current ROI selection"):
     st.session_state.roi_coords = None
     st.session_state.canvas_drawing = None
-    try:
-        st.experimental_rerun()
-    except Exception as e:
-        st.error("Error resetting ROI. Please reload the page.")
+    st.session_state.clear_roi = True
+    st.experimental_rerun()
 
-if st.sidebar.button("🔄 Reset Session", help="Clear all session data and restart the app"):
-    st.session_state.clear()
-    try:
-        st.experimental_rerun()
-    except Exception as e:
-        st.error("Error resetting session. Please reload the page.")
+# After session state initialization, show a success message if ROI was cleared
+if st.session_state.get("clear_roi", False):
+    st.success("ROI has been cleared!")
+    st.balloons()
+    st.session_state.clear_roi = False
 
 # --- Demo Mode: Load Demo Image ---
 demo_mode = st.sidebar.checkbox("Demo Mode", help="Load a demo image and sample analysis")
@@ -411,6 +409,7 @@ with st.sidebar:
             help="Download the PDF report of your session"
         )
         st.caption("PDF report data generated successfully.")
+        st.balloons()  # WOW effect!
 
 # --- Main Content: Two-Column Layout (Left: Image, Right: Analysis Results) ---
 col1, col2 = st.columns([2, 3])
@@ -644,6 +643,7 @@ if current_action:
                     st.session_state.pdf_report_bytes = pdf_bytes
                     st.success("PDF report data generated successfully.")
                     logger.info("PDF report generation successful.")
+                    st.balloons()  # Wow effect!
                 else:
                     st.error("Failed to generate PDF report data.")
                     logger.error("PDF generation returned None.")
