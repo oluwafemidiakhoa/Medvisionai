@@ -145,8 +145,7 @@ except ImportError as import_error:
     logger.critical(f"Failed import: {import_error}", exc_info=True)
     st.stop()
 
-# --- Additional UI: Model Selector & Clear ROI Button ---
-backend_selector = st.sidebar.selectbox("AI Backend", ["Gemini", f"HF: {HF_VQA_MODEL_ID}"])
+# --- Additional UI: Clear ROI Button ---
 if st.sidebar.button("🗑️ Clear ROI"):
     st.session_state.roi_coords = None
     st.session_state.canvas_drawing = None
@@ -208,7 +207,7 @@ logger.debug("Session state initialized.")
 # ------------------------------------------------------------------------------
 # <<< Page Title & Usage Guide >>>
 # ------------------------------------------------------------------------------
-st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
+st.title("⚕️ RadVisionAI QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research/informational purposes only. Verify AI outputs with a qualified specialist.")
     st.markdown("**Steps:** 1. Upload image 2. (DICOM W/L if needed) 3. Click 'Run Analysis' 4. Ask Q&A 5. Condition Analysis 6. Confidence & PDF")
