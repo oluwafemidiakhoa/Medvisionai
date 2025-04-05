@@ -1,12 +1,11 @@
-"""
-Ultra-Advanced RadVision AI: World-Class Medical Imaging Analysis
-
-- Supports DICOM and standard images
-- Performs multi-step AI analysis (initial, Q&A, disease-focused, confidence)
-- Allows ROI selection via a drawable canvas
-- All action buttons are placed in the sidebar
-- Main page uses a two-column layout (left: image, right: analysis results)
-"""
+# --- Import Streamlit and set page configuration as the very first command ---
+import streamlit as st
+st.set_page_config(
+    page_title="RadVision AI",
+    layout="wide",
+    page_icon="⚕️",
+    initial_sidebar_state="expanded"
+)
 
 # --- Core Libraries ---
 import io
@@ -17,10 +16,16 @@ import base64
 from typing import Any, Dict, Optional, Tuple, List
 import copy
 
-# --- Streamlit ---
-import streamlit as st
+# --- Drawable Canvas ---
+try:
+    from streamlit_drawable_canvas import st_canvas
+    import streamlit_drawable_canvas as st_canvas_module
+    CANVAS_VERSION = getattr(st_canvas_module, 'version', 'Unknown')
+except ImportError:
+    st.error("CRITICAL ERROR: streamlit-drawable-canvas is not installed. Please run: pip install streamlit-drawable-canvas")
+    st.stop()
 
-# --- Custom CSS for a polished look ---
+# --- Display Custom CSS for a Polished Look ---
 st.markdown("""
 <style>
     body {
@@ -33,25 +38,6 @@ st.markdown("""
     footer { text-align: center; font-size: 0.8em; color: #888888; }
 </style>
 """, unsafe_allow_html=True)
-
-# --- Drawable Canvas ---
-try:
-    from streamlit_drawable_canvas import st_canvas
-    import streamlit_drawable_canvas as st_canvas_module
-    CANVAS_VERSION = getattr(st_canvas_module, 'version', 'Unknown')
-except ImportError:
-    st.error("CRITICAL ERROR: streamlit-drawable-canvas is not installed. Please run: pip install streamlit-drawable-canvas")
-    st.stop()
-
-# ------------------------------------------------------------------------------
-# <<< Configure Streamlit Page >>>
-# ------------------------------------------------------------------------------
-st.set_page_config(
-    page_title="RadVision AI Advanced",
-    layout="wide",
-    page_icon="⚕️",
-    initial_sidebar_state="expanded"
-)
 
 # --- Display Hero Logo (scaled down) ---
 logo_path = os.path.join("assets", "radvisionai-hero.jpeg")
@@ -77,9 +63,7 @@ except ImportError:
     PYDICOM_VERSION = 'Not Installed'
     pydicom = None
 
-# ------------------------------------------------------------------------------
-# <<< Setup Logging >>>
-# ------------------------------------------------------------------------------
+# --- Setup Logging ---
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -111,9 +95,7 @@ logger.info(f"Streamlit version: {st.version}")
 logger.info(f"Pillow (PIL) version: {PIL_VERSION}")
 logger.info(f"streamlit_drawable_canvas version: {CANVAS_VERSION}")
 
-# ------------------------------------------------------------------------------
-# Monkey-Patch: Ensure st.elements.image.image_to_url exists
-# ------------------------------------------------------------------------------
+# --- Monkey-Patch: Ensure st.elements.image.image_to_url exists ---
 import streamlit.elements.image as st_image
 if not hasattr(st_image, "image_to_url"):
     def image_to_url_monkey_patch(img_obj: Any, *args, **kwargs) -> str:
@@ -138,9 +120,7 @@ if not hasattr(st_image, "image_to_url"):
     st_image.image_to_url = image_to_url_monkey_patch
     logger.info("Applied monkey-patch for st.elements.image.image_to_url")
 
-# ------------------------------------------------------------------------------
-# <<< Import Custom Utilities & Fallbacks >>>
-# ------------------------------------------------------------------------------
+# --- Import Custom Utilities & Fallbacks ---
 try:
     from dicom_utils import parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
     from llm_interactions import run_initial_analysis, run_multimodal_qa, run_disease_analysis, estimate_ai_confidence
@@ -185,9 +165,7 @@ if demo_mode and "demo_loaded" not in st.session_state:
     else:
         st.sidebar.warning("Demo image not found in assets folder.")
 
-# ------------------------------------------------------------------------------
-# Helper: Convert PIL Image to Data URL
-# ------------------------------------------------------------------------------
+# --- Helper: Convert PIL Image to Data URL ---
 def safe_image_to_data_url(img: Image.Image) -> str:
     if not isinstance(img, Image.Image):
         logger.warning(f"safe_image_to_data_url: Not a PIL Image (type: {type(img)}).")
@@ -207,9 +185,7 @@ def safe_image_to_data_url(img: Image.Image) -> str:
         logger.error(f"Failed converting image to data URL: {e}", exc_info=True)
         return ""
 
-# ------------------------------------------------------------------------------
-# <<< Initialize Session State >>>
-# ------------------------------------------------------------------------------
+# --- Initialize Session State ---
 DEFAULT_STATE = {
     "uploaded_file_info": None,
     "raw_image_bytes": None,
@@ -238,18 +214,14 @@ if not isinstance(st.session_state.history, list):
     st.session_state.history = []
 logger.debug("Session state initialized.")
 
-# ------------------------------------------------------------------------------
-# <<< Page Title & Usage Guide >>>
-# ------------------------------------------------------------------------------
+# --- Page Title & Usage Guide ---
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 with st.expander("Usage Guide", expanded=False):
     st.info("This tool is for research/informational purposes only. Verify AI outputs with a qualified specialist.")
     st.markdown("**Steps:** 1. Upload an image (or enable Demo Mode) 2. (Adjust DICOM W/L if needed) 3. Run analysis 4. Ask questions 5. Perform condition analysis 6. Estimate confidence & generate PDF report")
 st.markdown("---")
 
-# =============================================================================
-# === SIDEBAR CONTROLS: Upload, DICOM W/L, and AI Actions ===================
-# =============================================================================
+# --- Sidebar Controls: Upload, DICOM W/L, and AI Actions ---
 with st.sidebar:
     st.header("Upload & DICOM")
     uploaded_file = st.file_uploader(
@@ -364,7 +336,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ============== AI ACTIONS IN THE SIDEBAR ==============
+    # AI Actions in the Sidebar
     st.header("AI Actions")
 
     # 1) Run Initial Analysis
@@ -434,9 +406,7 @@ with st.sidebar:
         )
         st.caption("PDF report data generated successfully.")
 
-# =============================================================================
-# === MAIN CONTENT: Two-Column Layout (Left: Image, Right: Analysis Results)
-# =============================================================================
+# --- Main Content: Two-Column Layout (Left: Image, Right: Analysis Results) ---
 col1, col2 = st.columns([2, 3])
 with col1:
     st.subheader("🖼️ Image Viewer")
@@ -546,9 +516,7 @@ with col2:
             disabled=True
         )
 
-# =============================================================================
-# === ACTION HANDLING LOGIC ===================================================
-# =============================================================================
+# --- ACTION HANDLING LOGIC ---
 current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Handling action: {current_action}")
@@ -684,9 +652,7 @@ if current_action:
         logger.debug(f"Action '{current_action}' completed.")
         st.rerun()
 
-# =============================================================================
-# === Footer & Additional UI Elements =======================================
-# =============================================================================
+# --- Footer & Additional UI Elements ---
 st.markdown("---")
 st.caption(f"⚕️ RadVision AI Advanced | Session: {st.session_state.get('session_id', 'N/A')}")
 st.markdown(
