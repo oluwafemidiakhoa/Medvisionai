@@ -39,11 +39,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Display Hero Logo ---
+# --- Display Hero Logo (scaled down) ---
 logo_path = os.path.join("assets", "radvisionai-hero.jpeg")
 if os.path.exists(logo_path):
-    # Set the logo width to 400 pixels
-    st.image(logo_path, width=400)
+    st.image(logo_path, width=400)  # Display logo at 400px width
 else:
     st.warning("Hero logo not found in assets folder.")
 
@@ -145,6 +144,13 @@ except ImportError as import_error:
     st.error(f"CRITICAL ERROR importing helpers ({import_error}). Ensure all required modules are present.")
     logger.critical(f"Failed import: {import_error}", exc_info=True)
     st.stop()
+
+# --- Additional UI: Model Selector & Clear ROI Button ---
+backend_selector = st.sidebar.selectbox("AI Backend", ["Gemini", f"HF: {HF_VQA_MODEL_ID}"])
+if st.sidebar.button("🗑️ Clear ROI"):
+    st.session_state.roi_coords = None
+    st.session_state.canvas_drawing = None
+    st.experimental_rerun()
 
 # ------------------------------------------------------------------------------
 # Helper: Convert PIL Image to Data URL
