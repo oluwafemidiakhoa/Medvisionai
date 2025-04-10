@@ -16,14 +16,16 @@ from transformers import pipeline
 try:
     import sentencepiece  # noqa: F401
 except ImportError as e:
-    raise ImportError("The MarianMT tokenizer requires 'sentencepiece'. Please install it using:\n\n   pip install sentencepiece\n") from e
+    raise ImportError(
+        "The MarianMT tokenizer requires 'sentencepiece'. Please install it using:\n\n   pip install sentencepiece\n"
+    ) from e
 
 # User-facing language names → ISO 639-1 codes
 LANGUAGE_CODES = {
     "English": "en",
     "Spanish": "es",
-    "French":  "fr",
-    "German":  "de",
+    "French": "fr",
+    "German": "de",
     "Chinese": "zh",
     # Add more mappings if needed
 }
@@ -50,16 +52,15 @@ def translate(text: str, tgt_lang_name: str, src_lang_name: str = "English") -> 
 
     Args:
         text (str): Text to be translated.
-        tgt_lang_name (str): Target language (as a user-facing string, e.g. "Spanish").
-        src_lang_name (str): Source language (as a user-facing string, e.g. "English").
+        tgt_lang_name (str): Target language (e.g., "Spanish").
+        src_lang_name (str): Source language (e.g., "English").
 
     Returns:
         str: The translated text (or original text if no translation is needed).
 
     Note:
-        The maximum position embeddings for most MarianMT models is around 512 tokens.
-        To avoid the "index out of range" error during tokenization and generation,
-        the translation call now uses max_length=512 along with truncation.
+        MarianMT models typically support up to ~512 tokens. Here we use max_length=512
+        and enable truncation to avoid "index out of range" errors.
     """
     if not text or tgt_lang_name == src_lang_name:
         return text
@@ -68,6 +69,5 @@ def translate(text: str, tgt_lang_name: str, src_lang_name: str = "English") -> 
     tgt_code = LANGUAGE_CODES.get(tgt_lang_name, "en")
 
     translator = get_local_translator(src_code, tgt_code)
-    # Set max_length to 512 and enable truncation so that input longer than the model's limit is safely truncated.
     result = translator(text, max_length=512, truncation=True)
     return result[0]["translation_text"]
