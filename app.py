@@ -1,6 +1,6 @@
 import streamlit as st
 
-# Ensure this is the first command in the file:
+# Ensure this is the very first command in the file
 st.set_page_config(
     page_title="RadVision AI Advanced",
     layout="wide",
@@ -87,7 +87,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Check for optional DICOM libraries
 if pydicom is None:
     logger.error("pydicom module not found. DICOM functionality disabled.")
 else:
@@ -97,7 +96,7 @@ try:
     import pylibjpeg
     logger.info("pylibjpeg found.")
 except ImportError:
-    logger.warning("pylibjpeg not found. For extended DICOM compatibility, install `pylibjpeg` and `pylibjpeg-libjpeg`.")
+    logger.warning("pylibjpeg not found. For extended DICOM compatibility, install `pylibjpeg` & `pylibjpeg-libjpeg`.")
 
 try:
     import gdcm
@@ -150,7 +149,7 @@ try:
 
     logger.info("Successfully imported custom utility modules.")
 
-    # HF fallback
+    # Optional HF fallback for Q&A
     try:
         from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID
     except ImportError:
@@ -166,7 +165,7 @@ except ImportError as import_error:
     logger.critical(f"Failed import: {import_error}", exc_info=True)
     st.stop()
 
-# --- Import Our New Translation Module ---
+# --- Import the Translation Module ---
 try:
     from translation_models import translate, LANGUAGE_CODES
 except ImportError as e:
@@ -247,7 +246,10 @@ DEFAULT_STATE = {
 
 for key, default_value in DEFAULT_STATE.items():
     if key not in st.session_state:
-        st.session_state[key] = copy.deepcopy(default_value) if isinstance(default_value, (list, dict)) else default_value
+        if isinstance(default_value, (list, dict)):
+            st.session_state[key] = copy.deepcopy(default_value)
+        else:
+            st.session_state[key] = default_value
 
 if not isinstance(st.session_state.history, list):
     st.session_state.history = []
@@ -308,9 +310,12 @@ with st.sidebar:
         if new_file_info != st.session_state.get("uploaded_file_info"):
             logger.info(f"New file uploaded: {uploaded_file.name}")
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
-            for k, dval in DEFAULT_STATE.items():
-                if k not in {"file_uploader_widget"}:
-                    st.session_state[k] = copy.deepcopy(dval) if isinstance(dval, (list, dict)) else dval
+            for state_key, state_val in DEFAULT_STATE.items():
+                if state_key not in {"file_uploader_widget"}:
+                    if isinstance(state_val, (list, dict)):
+                        st.session_state[state_key] = copy.deepcopy(state_val)
+                    else:
+                        st.session_state[state_key] = state_val
 
             st.session_state.uploaded_file_info = new_file_info
             st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -323,9 +328,11 @@ with st.sidebar:
             )
 
             with st.spinner("🔬 Processing image..."):
-                temp_display, temp_processed = None, None
+                temp_display = None
+                temp_processed = None
                 success = False
 
+                # If it is DICOM
                 if st.session_state.is_dicom:
                     try:
                         ds = parse_dicom(st.session_state.raw_image_bytes, uploaded_file.name)
@@ -342,6 +349,8 @@ with st.sidebar:
                             )
                     except Exception as e:
                         st.error(f"DICOM processing error: {e}")
+
+                # If it is a normal image file
                 else:
                     try:
                         raw_img = Image.open(io.BytesIO(st.session_state.raw_image_bytes)).convert("RGB")
@@ -568,7 +577,7 @@ with col1:
 with col2:
     st.subheader("📊 Analysis & Results")
 
-    # Add a fifth tab for translation:
+    # We add a fifth tab for translation:
     tab_titles = [
         "🔬 Initial Analysis",
         "💬 Q&A History",
@@ -667,7 +676,10 @@ with col2:
                 )
 
             # Language pickers
-            lang_keys = list(LANGUAGE_CODES.keys())
+            if LANGUAGE_CODES:
+                lang_keys = list(LANGUAGE_CODES.keys())
+            else:
+                lang_keys = ["English", "Spanish"]
             default_src_idx = lang_keys.index("English") if "English" in lang_keys else 0
             default_tgt_idx = lang_keys.index("Spanish") if "Spanish" in lang_keys else 0
 
@@ -691,7 +703,7 @@ current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Handling action: {current_action}")
 
-    # Ensure valid processed_image if the action depends on it
+    # For actions that require a processed image
     if current_action != "generate_report_data" and not isinstance(st.session_state.processed_image, Image.Image):
         st.error(f"Cannot perform '{current_action}': processed image is invalid.")
         logger.error(f"Action '{current_action}' aborted: invalid processed_image.")
@@ -752,7 +764,7 @@ if current_action:
                             logger.error(f"HF fallback failure: {fb_ans}")
                     else:
                         st.session_state.qa_answer += "\n\n**[Fallback Unavailable]**"
-                        logger.warning("HF fallback skipped due to missing token.")
+                        logger.warning("HF fallback skipped: missing HF_API_TOKEN.")
 
         elif current_action == "disease":
             d = st.session_state.disease_select_widget
@@ -800,7 +812,10 @@ if current_action:
                     except Exception as e:
                         logger.error(f"Error drawing ROI for report: {e}", exc_info=True)
 
-                full_history = "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history]) if history else "No conversation history."
+                full_history = (
+                    "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history])
+                    if history else "No conversation history."
+                )
                 outputs = {
                     "Session ID": st.session_state.session_id,
                     "Initial Analysis": st.session_state.initial_analysis or "Not available",
