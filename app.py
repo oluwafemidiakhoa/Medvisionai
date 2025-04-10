@@ -96,7 +96,7 @@ try:
     import pylibjpeg
     logger.info("pylibjpeg found.")
 except ImportError:
-    logger.warning("pylibjpeg not found. For extended DICOM compatibility, install `pylibjpeg` & `pylibjpeg-libjpeg`.")
+    logger.warning("pylibjpeg not found. For extended DICOM compatibility, install `pylibjpeg` and `pylibjpeg-libjpeg`.")
 
 try:
     import gdcm
@@ -149,7 +149,7 @@ try:
 
     logger.info("Successfully imported custom utility modules.")
 
-    # Optional HF fallback for Q&A
+    # HF fallback for Q&A
     try:
         from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID
     except ImportError:
@@ -512,7 +512,7 @@ with col1:
     st.subheader("🖼️ Image Viewer")
     display_img = st.session_state.get("display_image")
     if isinstance(display_img, Image.Image):
-        # UPDATED: now use use_container_width instead of use_column_width
+        # Updated to use_container_width=True
         st.image(display_img, caption="Direct Preview", use_container_width=True)
         st.markdown("---")
 
