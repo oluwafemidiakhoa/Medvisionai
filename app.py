@@ -44,6 +44,20 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# --- Custom CSS for Tab Scrolling on Small Screens ---
+st.markdown(
+    """
+    <style>
+    /* Allow horizontal scrolling for the tabs if not all fit in the viewport */
+    div[role="tablist"] {
+         overflow-x: auto;
+         white-space: nowrap;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # --- Display Hero Logo (scaled down) ---
 logo_path = os.path.join("assets", "radvisionai-hero.jpeg")
 if os.path.exists(logo_path):
@@ -246,10 +260,7 @@ DEFAULT_STATE = {
 
 for key, default_value in DEFAULT_STATE.items():
     if key not in st.session_state:
-        if isinstance(default_value, (list, dict)):
-            st.session_state[key] = copy.deepcopy(default_value)
-        else:
-            st.session_state[key] = default_value
+        st.session_state[key] = copy.deepcopy(default_value) if isinstance(default_value, (list, dict)) else default_value
 
 if not isinstance(st.session_state.history, list):
     st.session_state.history = []
@@ -512,7 +523,6 @@ with col1:
     st.subheader("🖼️ Image Viewer")
     display_img = st.session_state.get("display_image")
     if isinstance(display_img, Image.Image):
-        # Updated to use_container_width=True
         st.image(display_img, caption="Direct Preview", use_container_width=True)
         st.markdown("---")
 
@@ -660,7 +670,7 @@ with col2:
                 index=0
             )
 
-            # Resolve the actual text:
+            # Resolve the actual text based on the selection:
             if selected_text_label == "Initial Analysis":
                 text_to_translate = st.session_state.initial_analysis
             elif selected_text_label == "AI Q&A Answer":
@@ -670,11 +680,7 @@ with col2:
             elif selected_text_label == "Confidence Estimation":
                 text_to_translate = st.session_state.confidence_score
             else:
-                text_to_translate = st.text_area(
-                    "Enter custom text:",
-                    value="",
-                    height=150
-                )
+                text_to_translate = st.text_area("Enter custom text:", value="", height=150)
 
             # Language pickers
             if LANGUAGE_CODES:
@@ -704,7 +710,6 @@ current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Handling action: {current_action}")
 
-    # For actions that require a processed image
     if current_action != "generate_report_data" and not isinstance(st.session_state.processed_image, Image.Image):
         st.error(f"Cannot perform '{current_action}': processed image is invalid.")
         logger.error(f"Action '{current_action}' aborted: invalid processed_image.")
