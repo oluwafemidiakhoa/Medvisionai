@@ -1,5 +1,6 @@
 import streamlit as st
 
+# Ensure this is the first command in the file:
 st.set_page_config(
     page_title="RadVision AI Advanced",
     layout="wide",
@@ -154,11 +155,19 @@ try:
             return "[Fallback Unavailable] HF module not found.", False
         logger.warning("hf_models.py not found. HF VQA fallback disabled.")
 except ImportError as import_error:
-    st.error(f"CRITICAL ERROR importing helpers ({import_error}). Ensure all required modules are installed.")
+    st.error(f"CRITICAL ERROR importing helpers: {import_error}. Ensure all required modules are installed.")
     logger.critical(f"Failed import: {import_error}", exc_info=True)
     st.stop()
 
-# --- Additional UI: Clear ROI Button with a "Wow" Effect ---
+# --- Import Our New Translation Module ---
+try:
+    from translation_models import translate, LANGUAGE_CODES
+except ImportError as e:
+    st.error(f"Could not import translation_models: {e}")
+    logger.error("Translation module not found. Translation features disabled.")
+    translate = None
+
+# --- Additional UI: Clear ROI Button with "Wow" Effect ---
 if st.sidebar.button("🗑️ Clear ROI", help="Clear the current ROI selection"):
     st.session_state.roi_coords = None
     st.session_state.canvas_drawing = None
@@ -249,27 +258,29 @@ if not st.session_state.get("session_id"):
 st.title("⚕️ RadVision QA Advanced: AI-Assisted Image Analysis")
 
 with st.expander("Usage Guide", expanded=False):
-    st.info("This tool is for research and informational purposes only. Verify AI outputs with a qualified specialist.")
+    st.info(
+        "This tool is for research and informational purposes only. "
+        "Verify AI outputs with a qualified specialist."
+    )
     st.markdown(
         "**Steps:** "
-        "1. Upload an image (or enable Demo Mode)  "
-        "2. (Adjust DICOM W/L if needed)  "
-        "3. Run analysis  "
-        "4. Ask questions  "
-        "5. Perform condition analysis  "
+        "1. Upload an image (or enable Demo Mode)  \n"
+        "2. (Adjust DICOM W/L if needed)  \n"
+        "3. Run analysis  \n"
+        "4. Ask questions  \n"
+        "5. Perform condition analysis  \n"
         "6. Estimate confidence & generate a PDF report"
     )
 
 st.markdown("---")
 
-# --- Sidebar Controls: Upload, DICOM W/L, and AI Actions ---
+# --- Sidebar: Upload, DICOM W/L, and AI Actions ---
 with st.sidebar:
     st.header("Upload & DICOM")
     uploaded_file = st.file_uploader(
         "Upload (JPG, PNG, DCM)",
         type=["jpg", "jpeg", "png", "dcm", "dicom"],
         key="file_uploader_widget",
-        accept_multiple_files=False,
         help="Upload a JPG, PNG, or DICOM file to analyze."
     )
 
@@ -533,13 +544,13 @@ with col1:
                 if last_obj["type"] == "rect":
                     scaleX = last_obj.get("scaleX", 1)
                     scaleY = last_obj.get("scaleY", 1)
-                    left = int(last_obj["left"])
-                    top = int(last_obj["top"])
-                    width = int(last_obj["width"] * scaleX)
-                    height = int(last_obj["height"] * scaleY)
+                    left_val = int(last_obj["left"])
+                    top_val = int(last_obj["top"])
+                    width_val = int(last_obj["width"] * scaleX)
+                    height_val = int(last_obj["height"] * scaleY)
                     sx, sy = img_w / canvas_width, img_h / canvas_height
-                    ol, ot = int(left * sx), int(top * sy)
-                    ow, oh = int(width * sx), int(height * sy)
+                    ol, ot = int(left_val * sx), int(top_val * sy)
+                    ow, oh = int(width_val * sx), int(height_val * sy)
                     new_roi = {"left": ol, "top": ot, "width": ow, "height": oh}
 
                     if st.session_state.roi_coords != new_roi:
@@ -561,9 +572,18 @@ with col1:
 
 with col2:
     st.subheader("📊 Analysis & Results")
-    tab_titles = ["🔬 Initial Analysis", "💬 Q&A History", "🩺 Disease Focus", "📈 Confidence"]
+
+    # We add a fifth tab for translation:
+    tab_titles = [
+        "🔬 Initial Analysis",
+        "💬 Q&A History",
+        "🩺 Disease Focus",
+        "📈 Confidence",
+        "🌐 Translation"
+    ]
     tabs = st.tabs(tab_titles)
 
+    # --- Tab 0: Initial Analysis ---
     with tabs[0]:
         st.text_area(
             "Overall Findings & Impressions",
@@ -573,6 +593,7 @@ with col2:
             disabled=True
         )
 
+    # --- Tab 1: Q&A History ---
     with tabs[1]:
         st.text_area(
             "AI Answer",
@@ -592,6 +613,7 @@ with col2:
         else:
             st.caption("No conversation history.")
 
+    # --- Tab 2: Disease Focus ---
     with tabs[2]:
         st.text_area(
             "Disease-Specific Analysis",
@@ -601,6 +623,7 @@ with col2:
             disabled=True
         )
 
+    # --- Tab 3: Confidence ---
     with tabs[3]:
         st.text_area(
             "AI Confidence Estimation",
@@ -610,6 +633,61 @@ with col2:
             disabled=True
         )
 
+    # --- Tab 4: Translation ---
+    with tabs[4]:
+        st.subheader("🌐 Translation")
+        if translate is None:
+            st.warning("Translation feature is currently unavailable.")
+        else:
+            st.caption("Select which text to translate and choose languages below.")
+
+            # Let the user pick a text to translate:
+            text_options = [
+                "(Custom text)",
+                "Initial Analysis",
+                "AI Q&A Answer",
+                "Disease Analysis",
+                "Confidence Estimation",
+            ]
+            selected_text_label = st.selectbox(
+                "Select text to translate",
+                text_options,
+                index=0
+            )
+
+            # Resolve the actual text:
+            if selected_text_label == "Initial Analysis":
+                text_to_translate = st.session_state.initial_analysis
+            elif selected_text_label == "AI Q&A Answer":
+                text_to_translate = st.session_state.qa_answer
+            elif selected_text_label == "Disease Analysis":
+                text_to_translate = st.session_state.disease_analysis
+            elif selected_text_label == "Confidence Estimation":
+                text_to_translate = st.session_state.confidence_score
+            else:
+                text_to_translate = st.text_area(
+                    "Enter custom text:",
+                    value="",
+                    height=150
+                )
+
+            # Language pickers
+            lang_keys = list(LANGUAGE_CODES.keys())
+            default_src_idx = lang_keys.index("English") if "English" in lang_keys else 0
+            default_tgt_idx = lang_keys.index("Spanish") if "Spanish" in lang_keys else 0
+
+            src_lang_name = st.selectbox("Source Language", lang_keys, index=default_src_idx)
+            tgt_lang_name = st.selectbox("Target Language", lang_keys, index=default_tgt_idx)
+
+            if st.button("Translate Now"):
+                if text_to_translate.strip():
+                    with st.spinner("Translating..."):
+                        translated = translate(text_to_translate, tgt_lang_name, src_lang_name)
+                    st.success("Translation complete!")
+                    st.text_area("Translated Text:", value=translated, height=200)
+                else:
+                    st.warning("No text to translate. Please enter or select valid text.")
+
 # --- ACTION HANDLING LOGIC ---
 if not st.session_state.get("session_id"):
     st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -618,13 +696,13 @@ current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Handling action: {current_action}")
     if current_action != "generate_report_data" and not isinstance(st.session_state.processed_image, Image.Image):
-        st.error(f"Cannot perform '{current_action}': Processed image is invalid.")
+        st.error(f"Cannot perform '{current_action}': processed image is invalid.")
         logger.error(f"Action '{current_action}' aborted: invalid processed_image.")
         st.session_state.last_action = None
         st.stop()
 
     if not st.session_state.session_id:
-        st.error(f"Cannot perform '{current_action}': Session ID is missing.")
+        st.error(f"Cannot perform '{current_action}': session ID is missing.")
         logger.error(f"Action '{current_action}' aborted: missing session ID.")
         st.session_state.last_action = None
         st.stop()
