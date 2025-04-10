@@ -1,39 +1,43 @@
 # .streamlit/config.toml
+
 [theme]
 base = "dark"
 
 # ===== Color System (WCAG AA/AAA Compliant) =====
-primaryColor = "#3B82F6"    # Royal Blue (4.6:1 contrast)
-backgroundColor = "#0F172A" # Deep Navy (AAA)
-secondaryBackgroundColor = "#1E293B" # Contrast Layer (AA)
-textColor = "#F8FAFC"       # Snow White
-dangerColor = "#EF4444"     # Error states
-successColor = "#10B981"    # Success states
+primaryColor = "#3B82F6"         # Royal Blue (4.6:1 contrast)
+backgroundColor = "#0F172A"      # Deep Navy (AAA)
+secondaryBackgroundColor = "#1E293B"  # Contrast Layer (AA)
+textColor = "#F8FAFC"            # Snow White
+
+# NOTE: The following two lines are NOT recognized by newer Streamlit versions:
+# dangerColor = "#EF4444"   # (Removed or commented out)
+# successColor = "#10B981"  # (Removed or commented out)
 
 # ===== Typography System =====
 font = "sans serif"
-fontMonospace = "Roboto Mono"
 
-[theme.componentStyles]
-button = """
-    font-weight: 600;
-    border-radius: 8px;
-    padding: 0.75rem 1.5rem;
-    transition: all 0.2s ease;
-    &:hover { transform: translateY(-1px); }
-    &:active { transform: translateY(1px); }
-"""
+# NOTE: Newer Streamlit versions typically do not recognize fontMonospace, so comment out:
+# fontMonospace = "Roboto Mono"
 
-input = """
-    border: 1px solid #334155;
-    border-radius: 6px;
-    &:focus { box-shadow: 0 0 0 2px #3B82F6; }
-"""
-
-notification = """
-    border-left: 4px solid #3B82F6;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-"""
+# NOTE: theme.componentStyles is no longer valid in new Streamlit releases, so we remove or comment it out:
+# [theme.componentStyles]
+# button = """
+#     font-weight: 600;
+#     border-radius: 8px;
+#     padding: 0.75rem 1.5rem;
+#     transition: all 0.2s ease;
+#     &:hover { transform: translateY(-1px); }
+#     &:active { transform: translateY(1px); }
+# """
+# input = """
+#     border: 1px solid #334155;
+#     border-radius: 6px;
+#     &:focus { box-shadow: 0 0 0 2px #3B82F6; }
+# """
+# notification = """
+#     border-left: 4px solid #3B82F6;
+#     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+# """
 
 # ===== Security & Performance =====
 [server]
@@ -44,41 +48,39 @@ enableXsrfProtection = true
 maxUploadSize = 500  # MB
 maxMessageSize = 500  # MB
 
-[runner]
-magicEnabled = false  # Disable auto-reload in production
-systemMetricsEnabled = true
+# [runner]
+# magicEnabled = false
+# NOTE: The following has been removed in newer Streamlit versions:
+# systemMetricsEnabled = true
 
 # ===== Advanced Configuration =====
 [browser]
 gatherUsageStats = false
 serverAddress = "0.0.0.0"
 
-[client]
-caching = true
-showErrorDetails = false  # Production-safe errors
+# [client]
+# caching = true
+# showErrorDetails = false
+# NOTE: "caching" is not recognized in later Streamlit versions, so commented out.
 
 ### Production Design Rationale ###
 # 1. Color System:
 #    - Tailwind-inspired palette with medical-grade contrast
-#    - Dedicated status colors for system feedback
+#    - Removed older color overrides (dangerColor/successColor) to avoid deprecation warnings
 #    - Dark mode optimized for radiology workflows
-
+#
 # 2. Component Design:
-#    - Micro-interactions for button states
-#    - Consistent border radius (8px system)
-#    - Accessible focus states
-
+#    - Custom component styles commented out due to deprecation
+#    - Basic theming keys remain (base, primaryColor, etc.)
+#
 # 3. Security:
 #    - XSRF protection enabled
-#    - Limited error details exposure
 #    - Upload size restrictions
-
+#
 # 4. Performance:
-#    - Caching enabled
-#    - Magic execution disabled
-#    - System metrics monitoring
-
+#    - Minimal config overhead
+#    - Some older settings (magicEnabled, caching) no longer recognized, hence commented
+#
 # 5. Compliance:
-#    - HIPAA-friendly tracking settings
-#    - Usage statistics disabled
+#    - HIPAA-friendly: usage stats disabled
 #    - Secure server binding
