@@ -12,6 +12,12 @@ from functools import lru_cache
 import torch
 from transformers import pipeline
 
+# Ensure sentencepiece is installed
+try:
+    import sentencepiece  # noqa: F401
+except ImportError as e:
+    raise ImportError("The MarianMT tokenizer requires 'sentencepiece'. Please install it using:\n\n   pip install sentencepiece\n") from e
+
 # User-facing language names → ISO 639-1 codes
 LANGUAGE_CODES = {
     "English": "en",
@@ -43,21 +49,23 @@ def translate(text: str, tgt_lang_name: str, src_lang_name: str = "English") -> 
     this function returns the original text unchanged.
 
     Args:
-        text (str): Text to be translated.
-        tgt_lang_name (str): Target language (e.g. "Spanish").
-        src_lang_name (str): Source language (e.g. "English").
+        text (str):
+            Text to be translated.
+        tgt_lang_name (str):
+            Target language (as a user-facing string, e.g. "Spanish").
+        src_lang_name (str):
+            Source language (as a user-facing string, e.g. "English").
 
     Returns:
-        str: Translated text (or original text if no translation needed).
+        str: The translated text (or original text if no translation is needed).
     """
     if not text or tgt_lang_name == src_lang_name:
         return text
 
-    # Convert language names to ISO codes
     src_code = LANGUAGE_CODES.get(src_lang_name, "en")
     tgt_code = LANGUAGE_CODES.get(tgt_lang_name, "en")
 
     translator = get_local_translator(src_code, tgt_code)
-    # The pipeline returns a list of dicts: [{"translation_text": "..."}]
+    # The pipeline returns a list of dictionaries: [{"translation_text": "..."}]
     result = translator(text, max_length=3000)
     return result[0]["translation_text"]
