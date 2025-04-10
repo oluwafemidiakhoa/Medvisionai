@@ -87,6 +87,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Check for optional DICOM libraries
 if pydicom is None:
     logger.error("pydicom module not found. DICOM functionality disabled.")
 else:
@@ -118,12 +119,12 @@ if not hasattr(st_image, "image_to_url"):
             try:
                 buffered = io.BytesIO()
                 fmt = "PNG"
-                img_to_save = img_obj
+                temp_img = img_obj
                 if img_obj.mode not in ['RGB', 'L', 'RGBA']:
-                    img_to_save = img_obj.convert('RGB')
+                    temp_img = img_obj.convert('RGB')
                 elif img_obj.mode == 'P':
-                    img_to_save = img_obj.convert('RGBA')
-                img_to_save.save(buffered, format=fmt)
+                    temp_img = img_obj.convert('RGBA')
+                temp_img.save(buffered, format=fmt)
                 img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 return f"data:image/{fmt.lower()};base64,{img_str}"
             except Exception as e:
@@ -146,14 +147,20 @@ try:
     )
     from report_utils import generate_pdf_report_bytes
     from ui_components import display_dicom_metadata, dicom_wl_sliders
+
     logger.info("Successfully imported custom utility modules.")
+
+    # HF fallback
     try:
         from hf_models import query_hf_vqa_inference_api, HF_VQA_MODEL_ID
     except ImportError:
         HF_VQA_MODEL_ID = "hf_model_not_found"
-        def query_hf_vqa_inference_api(img: Image.Image, question: str, roi: Optional[Dict] = None) -> Tuple[str, bool]:
+        def query_hf_vqa_inference_api(
+            img: Image.Image, question: str, roi: Optional[Dict] = None
+        ) -> Tuple[str, bool]:
             return "[Fallback Unavailable] HF module not found.", False
         logger.warning("hf_models.py not found. HF VQA fallback disabled.")
+
 except ImportError as import_error:
     st.error(f"CRITICAL ERROR importing helpers: {import_error}. Ensure all required modules are installed.")
     logger.critical(f"Failed import: {import_error}", exc_info=True)
@@ -198,17 +205,17 @@ if demo_mode and "demo_loaded" not in st.session_state:
 # --- Helper: Convert PIL Image to a Data URL Safely ---
 def safe_image_to_data_url(img: Image.Image) -> str:
     if not isinstance(img, Image.Image):
-        logger.warning(f"safe_image_to_data_url: Not a PIL Image (type: {type(img)}).")
+        logger.warning(f"safe_image_to_data_url: Not a PIL Image (type: {type(img)})")
         return ""
     try:
         buffered = io.BytesIO()
         fmt = "PNG"
-        img_to_save = img
+        temp_img = img
         if img.mode not in ['RGB', 'L', 'RGBA']:
-            img_to_save = img.convert('RGB')
+            temp_img = img.convert('RGB')
         elif img.mode == 'P':
-            img_to_save = img.convert('RGBA')
-        img_to_save.save(buffered, format=fmt)
+            temp_img = img.convert('RGBA')
+        temp_img.save(buffered, format=fmt)
         img_str = base64.b64encode(buffered.getvalue()).decode()
         return f"data:image/{fmt.lower()};base64,{img_str}"
     except Exception as e:
@@ -240,10 +247,7 @@ DEFAULT_STATE = {
 
 for key, default_value in DEFAULT_STATE.items():
     if key not in st.session_state:
-        if isinstance(default_value, (list, dict)):
-            st.session_state[key] = copy.deepcopy(default_value)
-        else:
-            st.session_state[key] = default_value
+        st.session_state[key] = copy.deepcopy(default_value) if isinstance(default_value, (list, dict)) else default_value
 
 if not isinstance(st.session_state.history, list):
     st.session_state.history = []
@@ -263,7 +267,7 @@ with st.expander("Usage Guide", expanded=False):
         "Verify AI outputs with a qualified specialist."
     )
     st.markdown(
-        "**Steps:** "
+        "**Steps:**  \n"
         "1. Upload an image (or enable Demo Mode)  \n"
         "2. (Adjust DICOM W/L if needed)  \n"
         "3. Run analysis  \n"
@@ -304,12 +308,9 @@ with st.sidebar:
         if new_file_info != st.session_state.get("uploaded_file_info"):
             logger.info(f"New file uploaded: {uploaded_file.name}")
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
-            for key, default_value in DEFAULT_STATE.items():
-                if key not in {"file_uploader_widget"}:
-                    if isinstance(default_value, (list, dict)):
-                        st.session_state[key] = copy.deepcopy(default_value)
-                    else:
-                        st.session_state[key] = default_value
+            for k, dval in DEFAULT_STATE.items():
+                if k not in {"file_uploader_widget"}:
+                    st.session_state[k] = copy.deepcopy(dval) if isinstance(dval, (list, dict)) else dval
 
             st.session_state.uploaded_file_info = new_file_info
             st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -322,9 +323,7 @@ with st.sidebar:
             )
 
             with st.spinner("🔬 Processing image..."):
-                st.session_state.raw_image_bytes = uploaded_file.getvalue()
-                temp_display = None
-                temp_processed = None
+                temp_display, temp_processed = None, None
                 success = False
 
                 if st.session_state.is_dicom:
@@ -345,9 +344,9 @@ with st.sidebar:
                         st.error(f"DICOM processing error: {e}")
                 else:
                     try:
-                        img = Image.open(io.BytesIO(st.session_state.raw_image_bytes)).convert("RGB")
-                        temp_display = img.copy()
-                        temp_processed = img.copy()
+                        raw_img = Image.open(io.BytesIO(st.session_state.raw_image_bytes)).convert("RGB")
+                        temp_display = raw_img.copy()
+                        temp_processed = raw_img.copy()
                         success = True
                     except UnidentifiedImageError:
                         st.error("Unsupported image format. Please upload JPG, PNG, or DICOM.")
@@ -410,11 +409,7 @@ with st.sidebar:
                         wc_reset, ww_reset = get_default_wl(st.session_state.dicom_dataset)
                         st.session_state.current_display_wc = wc_reset
                         st.session_state.current_display_ww = ww_reset
-                        reset_img = dicom_to_image(
-                            st.session_state.dicom_dataset,
-                            wc_reset,
-                            ww_reset
-                        )
+                        reset_img = dicom_to_image(st.session_state.dicom_dataset, wc_reset, ww_reset)
                         if isinstance(reset_img, Image.Image) and reset_img.mode != 'RGB':
                             reset_img = reset_img.convert('RGB')
                         st.session_state.display_image = reset_img
@@ -573,7 +568,7 @@ with col1:
 with col2:
     st.subheader("📊 Analysis & Results")
 
-    # We add a fifth tab for translation:
+    # Add a fifth tab for translation:
     tab_titles = [
         "🔬 Initial Analysis",
         "💬 Q&A History",
@@ -695,6 +690,8 @@ if not st.session_state.get("session_id"):
 current_action: Optional[str] = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Handling action: {current_action}")
+
+    # Ensure valid processed_image if the action depends on it
     if current_action != "generate_report_data" and not isinstance(st.session_state.processed_image, Image.Image):
         st.error(f"Cannot perform '{current_action}': processed image is invalid.")
         logger.error(f"Action '{current_action}' aborted: invalid processed_image.")
@@ -702,7 +699,7 @@ if current_action:
         st.stop()
 
     if not st.session_state.session_id:
-        st.error(f"Cannot perform '{current_action}': session ID is missing.")
+        st.error(f"Cannot perform '{current_action}': Session ID is missing.")
         logger.error(f"Action '{current_action}' aborted: missing session ID.")
         st.session_state.last_action = None
         st.stop()
@@ -803,10 +800,7 @@ if current_action:
                     except Exception as e:
                         logger.error(f"Error drawing ROI for report: {e}", exc_info=True)
 
-                full_history = (
-                    "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history])
-                    if history else "No conversation history."
-                )
+                full_history = "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history]) if history else "No conversation history."
                 outputs = {
                     "Session ID": st.session_state.session_id,
                     "Initial Analysis": st.session_state.initial_analysis or "Not available",
@@ -818,7 +812,11 @@ if current_action:
                     outputs["DICOM Metadata"] = "Filtered metadata is available."
 
                 with st.spinner("Generating PDF..."):
-                    pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_final, outputs)
+                    pdf_bytes = generate_pdf_report_bytes(
+                        st.session_state.session_id,
+                        img_final,
+                        outputs
+                    )
 
                 if pdf_bytes:
                     st.session_state.pdf_report_bytes = pdf_bytes
