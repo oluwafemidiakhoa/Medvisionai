@@ -57,6 +57,19 @@ TIPS = [
 ]
 st.sidebar.info(random.choice(TIPS))
 
+# --- Integration with translation model ---
+from translation_models import LANGUAGE_CODES, translate
+
+# Language selection
+st.sidebar.markdown("### Language Settings")
+selected_lang = st.sidebar.selectbox(
+    "Select output language",
+    options=list(LANGUAGE_CODES.keys()),
+    index=0,  # default to English
+    help="All AI outputs will be translated into this language."
+)
+target_code = LANGUAGE_CODES[selected_lang]
+
 # --- Image & DICOM Processing ---
 try:
     from PIL import Image, ImageDraw, UnidentifiedImageError
@@ -172,7 +185,9 @@ if demo_mode and "demo_loaded" not in st.session_state:
         st.session_state.processed_image = demo_img
         st.session_state.session_id = "demo"
         st.session_state.history = [("Demo Question", "Demo Answer")]
-        st.session_state.initial_analysis = "This is a demo analysis of the provided image."
+        # Translate the demo analysis to selected language, if needed
+        raw_demo_analysis = "This is a demo analysis of the provided image."
+        st.session_state.initial_analysis = translate(raw_demo_analysis, target_code)
         st.session_state.demo_loaded = True
         st.success("Demo mode activated! Demo image and sample analysis loaded.")
     else:
@@ -563,8 +578,10 @@ if current_action:
         if current_action == "analyze":
             st.info(f"🔬 Performing initial analysis{roi_str}...")
             with st.spinner("AI analyzing..."):
-                result = run_initial_analysis(img_llm)
-            st.session_state.initial_analysis = result
+                raw_result = run_initial_analysis(img_llm)
+            # Translate the result
+            translated_result = translate(raw_result, target_code)
+            st.session_state.initial_analysis = translated_result
             st.session_state.qa_answer = ""
             st.session_state.disease_analysis = ""
             st.session_state.confidence_score = ""
@@ -578,22 +595,26 @@ if current_action:
                 st.info(f"❓ Asking AI{roi_str}...")
                 st.session_state.qa_answer = ""
                 with st.spinner("Processing question..."):
-                    answer, ok = run_multimodal_qa(img_llm, q, history, roi)
+                    raw_ans, ok = run_multimodal_qa(img_llm, q, history, roi)
                 if ok:
-                    st.session_state.qa_answer = answer
-                    st.session_state.history.append((q, answer))
+                    # Translate answer
+                    translated_ans = translate(raw_ans, target_code)
+                    st.session_state.qa_answer = translated_ans
+                    st.session_state.history.append((q, translated_ans))
                     logger.info(f"Q&A successful: '{q}'{roi_str}")
                 else:
-                    st.session_state.qa_answer = f"Primary AI failed: {answer}"
+                    st.session_state.qa_answer = f"Primary AI failed: {raw_ans}"
                     st.error("Primary AI query failed. Attempting fallback...")
                     logger.warning(f"Primary AI failure: '{q}'")
                     if os.environ.get("HF_API_TOKEN"):
                         with st.spinner(f"Using HF fallback ({HF_VQA_MODEL_ID})..."):
                             fb_ans, fb_ok = query_hf_vqa_inference_api(img_llm, q, roi)
                         if fb_ok:
-                            fb_disp = f"**[Fallback: {HF_VQA_MODEL_ID}]**\n\n{fb_ans}"
-                            st.session_state.qa_answer += fb_disp
-                            st.session_state.history.append((f"[Fallback] {q}", fb_disp))
+                            # Translate fallback answer too
+                            translated_fb_ans = translate(fb_ans, target_code)
+                            fb_disp = f"**[Fallback: {HF_VQA_MODEL_ID}]**\n\n{translated_fb_ans}"
+                            st.session_state.qa_answer += "\n\n" + fb_disp
+                            st.session_state.history.append((f"[Fallback] {q}", translated_fb_ans))
                             logger.info("HF fallback successful.")
                         else:
                             st.session_state.qa_answer += f"\n\n**[Fallback Error]:** {fb_ans}"
@@ -609,8 +630,9 @@ if current_action:
             else:
                 st.info(f"🩺 Running focused analysis for '{d}'{roi_str}...")
                 with st.spinner(f"Analyzing '{d}'..."):
-                    result = run_disease_analysis(img_llm, d, roi)
-                st.session_state.disease_analysis = result
+                    raw_result = run_disease_analysis(img_llm, d, roi)
+                translated_result = translate(raw_result, target_code)
+                st.session_state.disease_analysis = translated_result
                 st.session_state.qa_answer = ""
                 st.session_state.confidence_score = ""
                 logger.info(f"Disease analysis completed for '{d}'.")
@@ -621,8 +643,9 @@ if current_action:
             else:
                 st.info(f"📊 Estimating confidence{roi_str}...")
                 with st.spinner("Calculating confidence..."):
-                    res = estimate_ai_confidence(img_llm, history)
-                st.session_state.confidence_score = res
+                    raw_confidence = estimate_ai_confidence(img_llm, history)
+                translated_confidence = translate(raw_confidence, target_code)
+                st.session_state.confidence_score = translated_confidence
                 logger.info("Confidence estimation completed.")
         elif current_action == "generate_report_data":
             st.info("📄 Generating PDF report data...")
