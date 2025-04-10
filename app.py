@@ -1,6 +1,6 @@
 import streamlit as st
 
-# Ensure this is the very first command in the file
+# Ensure this is the very first command in the file:
 st.set_page_config(
     page_title="RadVision AI Advanced",
     layout="wide",
@@ -512,7 +512,8 @@ with col1:
     st.subheader("🖼️ Image Viewer")
     display_img = st.session_state.get("display_image")
     if isinstance(display_img, Image.Image):
-        st.image(display_img, caption="Direct Preview", use_column_width=True)
+        # UPDATED: now use use_container_width instead of use_column_width
+        st.image(display_img, caption="Direct Preview", use_container_width=True)
         st.markdown("---")
 
         # Drawable canvas for ROI selection
