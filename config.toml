@@ -1,0 +1,5 @@
+[theme]
+dangerColor = "#FF0000"
+successColor = "#00FF00"
+fontMonospace = "SomeFont"
+componentStyles = "..."
