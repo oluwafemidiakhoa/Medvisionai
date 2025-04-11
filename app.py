@@ -15,6 +15,8 @@ import uuid
 import logging
 import base64
 from typing import Any, Dict, Optional, Tuple, List
+from translation_models import translate, LANGUAGE_CODES
+
 import copy
 import random  # For Tip of the Day
 import re      # For formatting the translation
