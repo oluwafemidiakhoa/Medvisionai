@@ -1,5 +1,7 @@
 # translation_models.py
 
+import translation_models:
+
 LANGUAGE_CODES = {
     "English": "en",
     "Spanish": "es",
