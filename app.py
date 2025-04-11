@@ -36,7 +36,7 @@ st.markdown(
             font-family: 'Helvetica', sans-serif;
             background-color: #f9f9f9;
         }
-        .css-1d391kg {  /* Sidebar background */
+        .css-1d391kg {  
             background-color: #ffffff;
         }
         footer {
@@ -53,7 +53,6 @@ st.markdown(
 st.markdown(
     """
     <style>
-    /* Allow horizontal scrolling if the tabs don't fit */
     div[role="tablist"] {
          overflow-x: auto;
          white-space: nowrap;
@@ -131,10 +130,6 @@ logger.info(f"streamlit_drawable_canvas version: {CANVAS_VERSION}")
 
 # --- Function to Post-Process Translated Text ---
 def format_translation(translated_text: str) -> str:
-    """
-    Reformat the translated output to enhance formatting (e.g., add extra line breaks before numbered headings).
-    """
-    # Insert two newlines before any line starting with a digit followed by a dot.
     formatted_text = re.sub(r'\s*(\d+\.)', r'\n\n\1', translated_text)
     return formatted_text
 
@@ -333,7 +328,9 @@ with st.sidebar:
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
             for state_key, state_val in DEFAULT_STATE.items():
                 if state_key not in {"file_uploader_widget"}:
-                    st.session_state[state_key] = copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
+                    st.session_state[state_key] = (
+                        copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
+                    )
 
             st.session_state.uploaded_file_info = new_file_info
             st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -639,7 +636,6 @@ with col2:
             st.warning("Translation feature is currently unavailable.")
         else:
             st.caption("Select which text to translate and choose languages below.")
-            # Show the text options and the language selectors.
             text_options = [
                 "(Custom text)",
                 "Initial Analysis",
@@ -658,7 +654,7 @@ with col2:
                 text_to_translate = st.session_state.confidence_score
             else:
                 text_to_translate = st.text_area("Enter custom text:", value="", height=150)
-            # Use the extended LANGUAGE_CODES dictionary (with 10 languages)
+            # Use the LANGUAGE_CODES dictionary with 10 languages
             if LANGUAGE_CODES:
                 lang_keys = list(LANGUAGE_CODES.keys())
             else:
