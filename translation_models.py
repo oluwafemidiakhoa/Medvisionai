@@ -44,7 +44,7 @@ def translate(text: str, tgt_lang_name: str, src_lang_name: str = "English") -> 
 # --- Language Detection using papluca/xlm-roberta-base-language-detection ---
 @lru_cache()
 def get_language_detector():
-    model_name = "papluca/xlm-roberta-base-language-detection"
+    model_name = "Helsinki-NLP/opus-mt-en-es"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name)
     device = 0 if torch.cuda.is_available() else -1
