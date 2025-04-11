@@ -333,7 +333,9 @@ with st.sidebar:
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
             for state_key, state_val in DEFAULT_STATE.items():
                 if state_key not in {"file_uploader_widget"}:
-                    st.session_state[state_key] = copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
+                    st.session_state[state_key] = (
+                        copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
+                    )
 
             st.session_state.uploaded_file_info = new_file_info
             st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -361,7 +363,8 @@ with st.sidebar:
                             temp_display = dicom_to_image(ds, wc, ww)
                             temp_processed = dicom_to_image(ds, None, None, normalize=True)
                             success = (
-                                isinstance(temp_display, Image.Image) and isinstance(temp_processed, Image.Image)
+                                isinstance(temp_display, Image.Image)
+                                and isinstance(temp_processed, Image.Image)
                             )
                     except Exception as e:
                         st.error(f"DICOM processing error: {e}")
@@ -564,6 +567,7 @@ with col1:
                         st.rerun()
         else:
             st.warning("Invalid image dimensions for the canvas.")
+        # If DICOM, show metadata in an expander
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("DICOM Metadata", expanded=False):
                 for k, v in st.session_state.dicom_metadata.items():
@@ -645,11 +649,7 @@ with col2:
                 "Disease Analysis",
                 "Confidence Estimation",
             ]
-            selected_text_label = st.selectbox(
-                "Select text to translate",
-                text_options,
-                index=0
-            )
+            selected_text_label = st.selectbox("Select text to translate", text_options, index=0)
             if selected_text_label == "Initial Analysis":
                 text_to_translate = st.session_state.initial_analysis
             elif selected_text_label == "AI Q&A Answer":
@@ -785,8 +785,10 @@ if current_action:
                         logger.info("ROI drawn on image for PDF report.")
                     except Exception as e:
                         logger.error(f"Error drawing ROI for report: {e}", exc_info=True)
-                full_history = ("\n\n".join([f"Q: {q}\nA: {a}" for q, a in history])
-                                if history else "No conversation history.")
+                full_history = (
+                    "\n\n".join([f"Q: {q}\nA: {a}" for q, a in history])
+                    if history else "No conversation history."
+                )
                 outputs = {
                     "Session ID": st.session_state.session_id,
                     "Initial Analysis": st.session_state.initial_analysis or "Not available",
@@ -797,7 +799,11 @@ if current_action:
                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
                     outputs["DICOM Metadata"] = "Filtered metadata is available."
                 with st.spinner("Generating PDF..."):
-                    pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_final, outputs)
+                    pdf_bytes = generate_pdf_report_bytes(
+                        st.session_state.session_id,
+                        img_final,
+                        outputs
+                    )
                 if pdf_bytes:
                     st.session_state.pdf_report_bytes = pdf_bytes
                     st.success("PDF report data generated successfully.")
