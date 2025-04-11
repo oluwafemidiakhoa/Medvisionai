@@ -134,6 +134,7 @@ def format_translation(translated_text: str) -> str:
     """
     Reformat the translated output to enhance formatting (e.g., add extra line breaks before numbered headings).
     """
+    # Insert two newlines before any line starting with a digit followed by a dot.
     formatted_text = re.sub(r'\s*(\d+\.)', r'\n\n\1', translated_text)
     return formatted_text
 
@@ -360,8 +361,7 @@ with st.sidebar:
                             temp_display = dicom_to_image(ds, wc, ww)
                             temp_processed = dicom_to_image(ds, None, None, normalize=True)
                             success = (
-                                isinstance(temp_display, Image.Image)
-                                and isinstance(temp_processed, Image.Image)
+                                isinstance(temp_display, Image.Image) and isinstance(temp_processed, Image.Image)
                             )
                     except Exception as e:
                         st.error(f"DICOM processing error: {e}")
@@ -639,7 +639,7 @@ with col2:
             st.warning("Translation feature is currently unavailable.")
         else:
             st.caption("Select which text to translate and choose languages below.")
-            # The LANGUAGE_CODES dictionary now supports 10 languages
+            # Show the text options and the language selectors.
             text_options = [
                 "(Custom text)",
                 "Initial Analysis",
@@ -658,6 +658,7 @@ with col2:
                 text_to_translate = st.session_state.confidence_score
             else:
                 text_to_translate = st.text_area("Enter custom text:", value="", height=150)
+            # Use the extended LANGUAGE_CODES dictionary (with 10 languages)
             if LANGUAGE_CODES:
                 lang_keys = list(LANGUAGE_CODES.keys())
             else:
