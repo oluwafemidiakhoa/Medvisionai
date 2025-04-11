@@ -48,7 +48,7 @@ st.markdown(
 st.markdown(
     """
     <style>
-    /* Allow horizontal scrolling for the tabs if not all fit in the viewport */
+    /* Allow horizontal scrolling if the tabs don't fit */
     div[role="tablist"] {
          overflow-x: auto;
          white-space: nowrap;
@@ -588,7 +588,7 @@ with col1:
 with col2:
     st.subheader("📊 Analysis & Results")
 
-    # We add a fifth tab for translation:
+    # Define five tabs including the Translation tab:
     tab_titles = [
         "🔬 Initial Analysis",
         "💬 Q&A History",
@@ -655,8 +655,6 @@ with col2:
             st.warning("Translation feature is currently unavailable.")
         else:
             st.caption("Select which text to translate and choose languages below.")
-
-            # Let the user pick a text to translate:
             text_options = [
                 "(Custom text)",
                 "Initial Analysis",
@@ -670,7 +668,6 @@ with col2:
                 index=0
             )
 
-            # Resolve the actual text based on the selection:
             if selected_text_label == "Initial Analysis":
                 text_to_translate = st.session_state.initial_analysis
             elif selected_text_label == "AI Q&A Answer":
@@ -682,7 +679,6 @@ with col2:
             else:
                 text_to_translate = st.text_area("Enter custom text:", value="", height=150)
 
-            # Language pickers
             if LANGUAGE_CODES:
                 lang_keys = list(LANGUAGE_CODES.keys())
             else:
