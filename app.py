@@ -36,7 +36,7 @@ st.markdown(
           font-family: 'Helvetica', sans-serif;
           background-color: #f9f9f9;
       }
-      .css-1d391kg {  /* Sidebar background */
+      .css-1d391kg {  
           background-color: #ffffff;
       }
       footer {
@@ -52,10 +52,10 @@ st.markdown(
 st.markdown(
     """
     <style>
-    div[role="tablist"] {
-        overflow-x: auto;
-        white-space: nowrap;
-    }
+      div[role="tablist"] {
+          overflow-x: auto;
+          white-space: nowrap;
+      }
     </style>
     """, unsafe_allow_html=True
 )
@@ -129,8 +129,7 @@ logger.info(f"streamlit_drawable_canvas version: {CANVAS_VERSION}")
 # --- Function to Post-Process Translated Text ---
 def format_translation(translated_text: str) -> str:
     """
-    Reformat the translated output to enhance formatting, 
-    e.g. insert extra line breaks before numbered headings.
+    Reformat the translated output to enhance formatting (e.g., add extra line breaks before numbered headings).
     """
     formatted_text = re.sub(r'\s*(\d+\.)', r'\n\n\1', translated_text)
     return formatted_text
@@ -346,7 +345,7 @@ with st.sidebar:
                 temp_processed = None
                 success = False
 
-                # If DICOM
+                # If it is DICOM
                 if st.session_state.is_dicom:
                     try:
                         ds = parse_dicom(st.session_state.raw_image_bytes, uploaded_file.name)
@@ -358,8 +357,7 @@ with st.sidebar:
                             temp_display = dicom_to_image(ds, wc, ww)
                             temp_processed = dicom_to_image(ds, None, None, normalize=True)
                             success = (
-                                isinstance(temp_display, Image.Image)
-                                and isinstance(temp_processed, Image.Image)
+                                isinstance(temp_display, Image.Image) and isinstance(temp_processed, Image.Image)
                             )
                     except Exception as e:
                         st.error(f"DICOM processing error: {e}")
@@ -655,7 +653,6 @@ with col2:
                 text_to_translate = st.session_state.confidence_score
             else:
                 text_to_translate = st.text_area("Enter custom text:", value="", height=150)
-            # Use the 10-language mapping from LANGUAGE_CODES
             if LANGUAGE_CODES:
                 lang_keys = list(LANGUAGE_CODES.keys())
             else:
@@ -667,11 +664,11 @@ with col2:
             if st.button("Translate Now"):
                 if text_to_translate.strip():
                     with st.spinner("Translating..."):
-                        # Create a detailed prompt instructing to preserve formatting:
+                        # Create a robust prompt to preserve formatting.
                         translation_prompt = (
                             f"Please translate the following text from English to {tgt_lang_name}.\n"
                             "Preserve all formatting elements such as bullet points, numbering, and spacing exactly as in the original text. "
-                            "Do not alter or add any details except for accurately translating the content.\n\n"
+                            "Do not add, remove, or alter any details; only translate the content accurately.\n\n"
                             f"{text_to_translate}"
                         )
                         translated = translate(translation_prompt, tgt_lang_name, "English")
@@ -802,7 +799,11 @@ if current_action:
                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
                     outputs["DICOM Metadata"] = "Filtered metadata is available."
                 with st.spinner("Generating PDF..."):
-                    pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_final, outputs)
+                    pdf_bytes = generate_pdf_report_bytes(
+                        st.session_state.session_id,
+                        img_final,
+                        outputs
+                    )
                 if pdf_bytes:
                     st.session_state.pdf_report_bytes = pdf_bytes
                     st.success("PDF report data generated successfully.")
