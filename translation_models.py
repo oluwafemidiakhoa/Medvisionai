@@ -24,8 +24,8 @@ except ImportError as e:
 LANGUAGE_CODES = {
     "English": "en",
     "Spanish": "es",
-    "French": "fr",
-    "German": "de",
+    "French":  "fr",
+    "German":  "de",
     "Chinese": "zh",
     # Add more mappings if needed
 }
@@ -56,11 +56,11 @@ def translate(text: str, tgt_lang_name: str, src_lang_name: str = "English") -> 
         src_lang_name (str): Source language (e.g., "English").
 
     Returns:
-        str: The translated text (or original text if no translation is needed).
+        str: The translated text (or the original text if no translation is needed).
 
     Note:
-        MarianMT models typically support up to ~512 tokens. Here we use max_length=512
-        and enable truncation to avoid "index out of range" errors.
+        MarianMT models typically support up to ~512 tokens. To avoid an "index out of range"
+        error during tokenization, this call uses max_length=512 and truncation=True.
     """
     if not text or tgt_lang_name == src_lang_name:
         return text
