@@ -134,7 +134,6 @@ def format_translation(translated_text: str) -> str:
     """
     Reformat the translated output to enhance formatting (e.g., add extra line breaks before numbered headings).
     """
-    # Insert two newlines before any line that starts with a digit followed by a period.
     formatted_text = re.sub(r'\s*(\d+\.)', r'\n\n\1', translated_text)
     return formatted_text
 
@@ -333,9 +332,7 @@ with st.sidebar:
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
             for state_key, state_val in DEFAULT_STATE.items():
                 if state_key not in {"file_uploader_widget"}:
-                    st.session_state[state_key] = (
-                        copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
-                    )
+                    st.session_state[state_key] = copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
 
             st.session_state.uploaded_file_info = new_file_info
             st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -642,6 +639,7 @@ with col2:
             st.warning("Translation feature is currently unavailable.")
         else:
             st.caption("Select which text to translate and choose languages below.")
+            # The LANGUAGE_CODES dictionary now supports 10 languages
             text_options = [
                 "(Custom text)",
                 "Initial Analysis",
