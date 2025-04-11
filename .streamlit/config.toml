@@ -9,17 +9,17 @@ backgroundColor = "#0F172A"      # Deep Navy (AAA)
 secondaryBackgroundColor = "#1E293B"  # Contrast Layer (AA)
 textColor = "#F8FAFC"            # Snow White
 
-# NOTE: The following two lines are NOT recognized by newer Streamlit versions:
-# dangerColor = "#EF4444"   # (Removed or commented out)
-# successColor = "#10B981"  # (Removed or commented out)
+# NOTE: The following keys are not recognized by newer Streamlit versions.
+# dangerColor = "#EF4444"   # Removed or deprecated
+# successColor = "#10B981"  # Removed or deprecated
 
 # ===== Typography System =====
 font = "sans serif"
 
-# NOTE: Newer Streamlit versions typically do not recognize fontMonospace, so comment out:
+# NOTE: 'fontMonospace' is not recognized in newer versions.
 # fontMonospace = "Roboto Mono"
 
-# NOTE: theme.componentStyles is no longer valid in new Streamlit releases, so we remove or comment it out:
+# NOTE: The [theme.componentStyles] section is deprecated in new Streamlit releases.
 # [theme.componentStyles]
 # button = """
 #     font-weight: 600;
@@ -50,8 +50,7 @@ maxMessageSize = 500  # MB
 
 # [runner]
 # magicEnabled = false
-# NOTE: The following has been removed in newer Streamlit versions:
-# systemMetricsEnabled = true
+# NOTE: 'systemMetricsEnabled' has been removed in recent Streamlit versions.
 
 # ===== Advanced Configuration =====
 [browser]
@@ -61,26 +60,26 @@ serverAddress = "0.0.0.0"
 # [client]
 # caching = true
 # showErrorDetails = false
-# NOTE: "caching" is not recognized in later Streamlit versions, so commented out.
+# NOTE: 'caching' is not recognized in later Streamlit versions; hence, it is commented out.
 
 ### Production Design Rationale ###
 # 1. Color System:
-#    - Tailwind-inspired palette with medical-grade contrast
-#    - Removed older color overrides (dangerColor/successColor) to avoid deprecation warnings
-#    - Dark mode optimized for radiology workflows
+#    - Uses a Tailwind-inspired palette with high contrast suited for medical applications.
+#    - Older color overrides (dangerColor and successColor) have been removed to eliminate deprecation warnings.
+#    - Dark mode is optimized for radiology workflows.
 #
 # 2. Component Design:
-#    - Custom component styles commented out due to deprecation
-#    - Basic theming keys remain (base, primaryColor, etc.)
+#    - Custom component styles have been commented out due to deprecation.
+#    - Basic theming keys (base, primaryColor, etc.) remain.
 #
 # 3. Security:
-#    - XSRF protection enabled
-#    - Upload size restrictions
+#    - XSRF protection is enabled.
+#    - Upload size restrictions are enforced.
 #
 # 4. Performance:
-#    - Minimal config overhead
-#    - Some older settings (magicEnabled, caching) no longer recognized, hence commented
+#    - Minimal configuration to reduce overhead.
+#    - Deprecated settings like magicEnabled and caching have been commented out.
 #
 # 5. Compliance:
-#    - HIPAA-friendly: usage stats disabled
-#    - Secure server binding
+#    - HIPAA-friendly design with usage statistics disabled.
+#    - Secure server binding is ensured.
