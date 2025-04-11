@@ -17,7 +17,7 @@ import base64
 from typing import Any, Dict, Optional, Tuple, List
 import copy
 import random  # For Tip of the Day
-import re  # For formatting the translation
+import re      # For formatting the translation
 
 # --- Drawable Canvas ---
 try:
@@ -32,21 +32,20 @@ except ImportError:
 st.markdown(
     """
     <style>
-        body {
-            font-family: 'Helvetica', sans-serif;
-            background-color: #f9f9f9;
-        }
-        .css-1d391kg {  
-            background-color: #ffffff;
-        }
-        footer {
-            text-align: center;
-            font-size: 0.8em;
-            color: #888888;
-        }
+      body {
+          font-family: 'Helvetica', sans-serif;
+          background-color: #f9f9f9;
+      }
+      .css-1d391kg {  /* Sidebar background */
+          background-color: #ffffff;
+      }
+      footer {
+          text-align: center;
+          font-size: 0.8em;
+          color: #888888;
+      }
     </style>
-    """,
-    unsafe_allow_html=True
+    """, unsafe_allow_html=True
 )
 
 # --- Custom CSS for Tab Scrolling on Small Screens ---
@@ -54,12 +53,11 @@ st.markdown(
     """
     <style>
     div[role="tablist"] {
-         overflow-x: auto;
-         white-space: nowrap;
+        overflow-x: auto;
+        white-space: nowrap;
     }
     </style>
-    """,
-    unsafe_allow_html=True
+    """, unsafe_allow_html=True
 )
 
 # --- Display Hero Logo (scaled down) ---
@@ -130,6 +128,10 @@ logger.info(f"streamlit_drawable_canvas version: {CANVAS_VERSION}")
 
 # --- Function to Post-Process Translated Text ---
 def format_translation(translated_text: str) -> str:
+    """
+    Reformat the translated output to enhance formatting, 
+    e.g. insert extra line breaks before numbered headings.
+    """
     formatted_text = re.sub(r'\s*(\d+\.)', r'\n\n\1', translated_text)
     return formatted_text
 
@@ -328,9 +330,7 @@ with st.sidebar:
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
             for state_key, state_val in DEFAULT_STATE.items():
                 if state_key not in {"file_uploader_widget"}:
-                    st.session_state[state_key] = (
-                        copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
-                    )
+                    st.session_state[state_key] = copy.deepcopy(state_val) if isinstance(state_val, (list, dict)) else state_val
 
             st.session_state.uploaded_file_info = new_file_info
             st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -346,7 +346,7 @@ with st.sidebar:
                 temp_processed = None
                 success = False
 
-                # If it is DICOM
+                # If DICOM
                 if st.session_state.is_dicom:
                     try:
                         ds = parse_dicom(st.session_state.raw_image_bytes, uploaded_file.name)
@@ -358,11 +358,12 @@ with st.sidebar:
                             temp_display = dicom_to_image(ds, wc, ww)
                             temp_processed = dicom_to_image(ds, None, None, normalize=True)
                             success = (
-                                isinstance(temp_display, Image.Image) and isinstance(temp_processed, Image.Image)
+                                isinstance(temp_display, Image.Image)
+                                and isinstance(temp_processed, Image.Image)
                             )
                     except Exception as e:
                         st.error(f"DICOM processing error: {e}")
-                # If it is a normal image file
+                # If normal image file
                 else:
                     try:
                         raw_img = Image.open(io.BytesIO(st.session_state.raw_image_bytes)).convert("RGB")
@@ -635,7 +636,7 @@ with col2:
         if translate is None:
             st.warning("Translation feature is currently unavailable.")
         else:
-            st.caption("Select which text to translate and choose languages below.")
+            st.caption("Select the text to translate and choose source and target languages. The translation prompt instructs the model to preserve formatting, numbering, and bullet points.")
             text_options = [
                 "(Custom text)",
                 "Initial Analysis",
@@ -654,7 +655,7 @@ with col2:
                 text_to_translate = st.session_state.confidence_score
             else:
                 text_to_translate = st.text_area("Enter custom text:", value="", height=150)
-            # Use the LANGUAGE_CODES dictionary with 10 languages
+            # Use the 10-language mapping from LANGUAGE_CODES
             if LANGUAGE_CODES:
                 lang_keys = list(LANGUAGE_CODES.keys())
             else:
@@ -666,7 +667,14 @@ with col2:
             if st.button("Translate Now"):
                 if text_to_translate.strip():
                     with st.spinner("Translating..."):
-                        translated = translate(text_to_translate, tgt_lang_name, src_lang_name)
+                        # Create a detailed prompt instructing to preserve formatting:
+                        translation_prompt = (
+                            f"Please translate the following text from English to {tgt_lang_name}.\n"
+                            "Preserve all formatting elements such as bullet points, numbering, and spacing exactly as in the original text. "
+                            "Do not alter or add any details except for accurately translating the content.\n\n"
+                            f"{text_to_translate}"
+                        )
+                        translated = translate(translation_prompt, tgt_lang_name, "English")
                         translated = format_translation(translated)
                     st.success("Translation complete!")
                     st.text_area("Translated Text:", value=translated, height=200)
@@ -794,11 +802,7 @@ if current_action:
                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
                     outputs["DICOM Metadata"] = "Filtered metadata is available."
                 with st.spinner("Generating PDF..."):
-                    pdf_bytes = generate_pdf_report_bytes(
-                        st.session_state.session_id,
-                        img_final,
-                        outputs
-                    )
+                    pdf_bytes = generate_pdf_report_bytes(st.session_state.session_id, img_final, outputs)
                 if pdf_bytes:
                     st.session_state.pdf_report_bytes = pdf_bytes
                     st.success("PDF report data generated successfully.")
