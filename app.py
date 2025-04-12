@@ -600,7 +600,7 @@ if uploaded_file is not None:
 # --- Display Uploaded Image (Minimal Addition) ---
 # If an image has been processed, immediately display it.
 if st.session_state.get("display_image") is not None:
-    st.image(st.session_state.display_image, caption="Uploaded Image", use_column_width=True)
+    st.image(st.session_state.display_image, caption="Uploaded Image",use_container_width=True)
 
 # --- Main Page ---
 st.markdown("---")
