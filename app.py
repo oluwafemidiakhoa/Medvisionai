@@ -230,7 +230,8 @@ if demo_mode and "demo_loaded" not in st.session_state:
             demo_img = Image.open(demo_path).convert("RGB")
             # Reset relevant states when demo mode is activated
             for key, value in DEFAULT_STATE.items():
-                 if key not in {"file_uploader_widget"}: # Don't reset the widget itself
+                 # Don't reset the widget itself or translation state potentially
+                 if key not in {"file_uploader_widget", "translation_src_lang", "translation_tgt_lang"}:
                     st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
 
             st.session_state.display_image = demo_img
@@ -252,7 +253,7 @@ elif not demo_mode and st.session_state.get("demo_loaded"):
     # If demo mode is unchecked, clear demo state
     logger.info("Demo mode deactivated.")
     for key, value in DEFAULT_STATE.items():
-        if key not in {"file_uploader_widget"}:
+        if key not in {"file_uploader_widget", "translation_src_lang", "translation_tgt_lang"}:
              st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
     st.session_state.demo_loaded = False
     st.session_state.session_id = str(uuid.uuid4())[:8] # New real session ID
@@ -311,6 +312,8 @@ DEFAULT_STATE = {
     "translation_output": "", # Store the last translation result
     "translation_src_lang": "Auto-Detect", # Default source language
     "translation_tgt_lang": "Spanish", # Default target language
+    "demo_loaded": False, # Add demo_loaded flag to default state
+    "clear_roi_triggered": False, # Add ROI clearing flag
 }
 
 for key, value in DEFAULT_STATE.items():
@@ -371,12 +374,13 @@ with st.sidebar:
                 hasher.update(file_content)
                 file_unique_id = hasher.hexdigest()
                 uploaded_file.seek(0) # Reset cursor after reading
+                raw_bytes = file_content # Use already read content
             else:
                 file_unique_id = str(file_mtime)
+                raw_bytes = uploaded_file.getvalue() # Read content
+                uploaded_file.seek(0) # Always reset cursor
 
             new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{file_unique_id}"
-            raw_bytes = uploaded_file.getvalue() # Use pre-read content if hashed
-            uploaded_file.seek(0) # Always reset cursor
 
         except Exception as err:
             logger.error(f"Error generating file info: {err}", exc_info=True)
@@ -389,20 +393,20 @@ with st.sidebar:
             logger.info(f"Processing new file: {uploaded_file.name} (Size: {uploaded_file.size})")
             st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
 
-            # Reset state for the new file (keep file uploader widget state)
-            current_widget_state = st.session_state.get("file_uploader_widget")
-            current_demo_state = st.session_state.get("demo_loaded", False) # Preserve demo state if active
+            # --- CORRECTED STATE RESET ---
+            # Define keys that should NOT be reset when a new file is uploaded
+            keys_to_preserve = {"file_uploader_widget"}
 
-            for key, value in DEFAULT_STATE.items():
-                 st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
-
-            st.session_state.file_uploader_widget = current_widget_state # Restore widget state
-            st.session_state.demo_loaded = current_demo_state # Restore demo state
+            # Reset other states back to their defaults
+            for key, default_value in DEFAULT_STATE.items():
+                if key not in keys_to_preserve: # Only reset if key is NOT preserved
+                    st.session_state[key] = copy.deepcopy(default_value) if isinstance(default_value, (dict, list)) else default_value
+            # --- END OF CORRECTION ---
 
             st.session_state.uploaded_file_info = new_file_info
             st.session_state.session_id = str(uuid.uuid4())[:8] # New session for new file
             st.session_state.raw_image_bytes = raw_bytes
-            st.session_state.demo_loaded = False # Turn off demo mode if a real file is uploaded
+            st.session_state.demo_loaded = False # Explicitly turn off demo mode if a real file is uploaded
 
             # Determine if DICOM
             file_ext = os.path.splitext(uploaded_file.name)[1].lower()
@@ -792,18 +796,20 @@ with col2:
             text_to_translate = text_to_translate_input if selected_label == "(Enter Custom Text Below)" else text_options[selected_label]
 
             # 3. Language Selection
-            lang_names = list(LANGUAGE_CODES.keys())
+            lang_names = sorted(list(LANGUAGE_CODES.keys())) # Sort for better UI
             try:
+                 # Find the index of the stored target language, default to 0 if not found or invalid
                  default_tgt_index = lang_names.index(st.session_state.translation_tgt_lang)
-            except ValueError:
-                 default_tgt_index = 0 # Default to first language if previous selection invalid
+            except (ValueError, AttributeError):
+                 default_tgt_index = 0 # Default to first language if previous selection invalid or not set
 
             col_lang1, col_lang2 = st.columns(2)
             with col_lang1:
                 src_lang_options = ["Auto-Detect"] + lang_names
                 try:
+                    # Find index of stored source lang, default to 0 (Auto-Detect)
                     default_src_index = src_lang_options.index(st.session_state.translation_src_lang)
-                except ValueError:
+                except (ValueError, AttributeError):
                     default_src_index = 0 # Default to Auto-Detect
                 selected_src_lang_name = st.selectbox(
                     "Source Language:",
@@ -841,15 +847,18 @@ with col2:
                                 logger.info(f"Attempting auto-detection, detected code: {detected_code}")
                                 detected_lang_found = False
                                 if detected_code:
+                                    # Try to match detected code (or its base) with codes in our list
+                                    detected_code_lower = detected_code.lower()
+                                    detected_base_code = detected_code_lower.split('-')[0]
                                     for name, code in LANGUAGE_CODES.items():
-                                        # Handle variations like zh-CN vs zh
-                                        if detected_code.lower() == code.lower() or detected_code.lower().split('-')[0] == code.lower().split('-')[0]:
+                                        code_lower = code.lower()
+                                        if detected_code_lower == code_lower or detected_base_code == code_lower.split('-')[0]:
                                             actual_src_lang_name = name
                                             st.info(f"Auto-detected source language: **{name}** ({detected_code})")
                                             detected_lang_found = True
                                             break
                                 if not detected_lang_found:
-                                    st.warning("Could not reliably auto-detect source language. Assuming English.")
+                                    st.warning("Could not reliably auto-detect source language or map it to known languages. Assuming English.")
                                     logger.warning(f"Auto-detection failed or code '{detected_code}' not in LANGUAGE_CODES. Defaulting to English.")
                                     actual_src_lang_name = "English" # Fallback if detection fails or not in our list
 
@@ -858,35 +867,32 @@ with col2:
                                 st.info(f"Detected source language ({actual_src_lang_name}) is the same as the target. No translation needed.")
                                 st.session_state.translation_output = text_to_translate
                             else:
-                                # Get language codes for the API call (if needed by your translate function)
-                                # src_code = LANGUAGE_CODES.get(actual_src_lang_name)
-                                # tgt_code = LANGUAGE_CODES.get(selected_tgt_lang_name)
-
                                 # --- Call your translation function ---
-                                # Adapt this call based on how your `translate` function works.
-                                # This example assumes it takes text, target language name, and source language name.
+                                # This uses the function imported from translation_models.py
                                 raw_translation = translate(
                                     text_to_translate,
                                     target_language=selected_tgt_lang_name,
-                                    source_language=actual_src_lang_name
+                                    source_language=actual_src_lang_name # Pass detected/selected source name
                                 )
                                 # ---
 
-                                if raw_translation:
+                                if raw_translation and not raw_translation.startswith("[Translation Error"):
                                     # Apply post-processing formatting
                                     final_trans = format_translation(raw_translation)
                                     st.session_state.translation_output = final_trans
                                     st.success("Translation complete!")
                                     logger.info(f"Translation successful: {actual_src_lang_name} -> {selected_tgt_lang_name}")
                                 else:
-                                    st.error("Translation failed. The translation service might be unavailable or returned an empty result.")
-                                    logger.error(f"Translation failed for: {actual_src_lang_name} -> {selected_tgt_lang_name}")
-                                    st.session_state.translation_output = "Error: Translation failed."
+                                    # Handle errors returned explicitly by the translate function or empty results
+                                    error_msg = raw_translation if raw_translation else "[Error: Translation service returned an empty result.]"
+                                    st.error(f"Translation failed. {error_msg}")
+                                    logger.error(f"Translation failed for: {actual_src_lang_name} -> {selected_tgt_lang_name}. Reason: {error_msg}")
+                                    st.session_state.translation_output = error_msg
 
                         except Exception as e:
-                            st.error(f"An error occurred during translation: {e}")
+                            st.error(f"An unexpected error occurred during translation: {e}")
                             logger.error(f"Translation exception: {e}", exc_info=True)
-                            st.session_state.translation_output = f"Error: {e}"
+                            st.session_state.translation_output = f"[Error: Exception during translation - {e}]"
 
             # 5. Display Translation Output
             st.text_area(
@@ -931,7 +937,8 @@ if 'last_action' in st.session_state and st.session_state.last_action:
         if current_action == "analyze":
             st.info(f"🔬 Performing initial analysis{roi_str}...")
             with st.spinner("AI is analyzing the image..."):
-                result = run_initial_analysis(img_llm, roi) # Pass ROI if available
+                # Assume run_initial_analysis can accept ROI=None
+                result = run_initial_analysis(img_llm, roi=roi) # Pass ROI if available
             st.session_state.initial_analysis = result
             # Clear other analysis fields when starting a new initial analysis
             st.session_state.qa_answer = ""
@@ -949,8 +956,8 @@ if 'last_action' in st.session_state and st.session_state.last_action:
                 st.info(f"❓ Asking AI: \"{q}\"{roi_str}...")
                 st.session_state.qa_answer = "" # Clear previous answer display
                 with st.spinner("AI is processing your question..."):
-                    # Pass history for context
-                    answer, ok = run_multimodal_qa(img_llm, q, history, roi)
+                    # Pass history for context, assume run_multimodal_qa handles ROI
+                    answer, ok = run_multimodal_qa(img_llm, q, history, roi=roi)
                 if ok:
                     st.session_state.qa_answer = answer
                     st.session_state.history.append((q, answer)) # Add to history
@@ -967,7 +974,8 @@ if 'last_action' in st.session_state and st.session_state.last_action:
                     if hf_token_exists and HF_VQA_MODEL_ID != "hf_model_not_found":
                         logger.info(f"Attempting HF fallback using {HF_VQA_MODEL_ID}.")
                         with st.spinner(f"Trying fallback with {HF_VQA_MODEL_ID}..."):
-                            fb_ans, fb_ok = query_hf_vqa_inference_api(img_llm, q, roi)
+                            # Assume query_hf_vqa_inference_api handles ROI
+                            fb_ans, fb_ok = query_hf_vqa_inference_api(img_llm, q, roi=roi)
                         if fb_ok:
                             fb_disp = f"**[Fallback Result: {HF_VQA_MODEL_ID}]**\n\n{fb_ans}"
                             st.session_state.qa_answer += "\n\n" + fb_disp # Append fallback answer
@@ -993,7 +1001,8 @@ if 'last_action' in st.session_state and st.session_state.last_action:
             else:
                 st.info(f"🩺 Running focused analysis for '{d}'{roi_str}...")
                 with st.spinner(f"AI is analyzing for signs of {d}..."):
-                    result = run_disease_analysis(img_llm, d, roi) # Pass ROI
+                    # Assume run_disease_analysis handles ROI
+                    result = run_disease_analysis(img_llm, d, roi=roi) # Pass ROI
                 st.session_state.disease_analysis = result
                 # Clear other analysis fields
                 st.session_state.qa_answer = ""
@@ -1012,12 +1021,13 @@ if 'last_action' in st.session_state and st.session_state.last_action:
                 logger.info(f"Running confidence estimation with context: {context_summary}")
                 with st.spinner("AI is assessing its confidence..."):
                     # Pass relevant context to the confidence function
+                    # Ensure estimate_ai_confidence handles ROI correctly if needed
                     res = estimate_ai_confidence(
                         img_llm,
-                        history,
-                        st.session_state.initial_analysis,
-                        st.session_state.disease_analysis,
-                        roi # Pass ROI if it influenced the analyses
+                        history=history,
+                        initial_analysis=st.session_state.initial_analysis,
+                        disease_analysis=st.session_state.disease_analysis,
+                        roi=roi # Pass ROI if it influenced the analyses
                     )
                 st.session_state.confidence_score = res
                 logger.info("Confidence estimation completed.")
@@ -1034,7 +1044,7 @@ if 'last_action' in st.session_state and st.session_state.last_action:
             else:
                 img_final = img_for_report.copy() # Work on a copy
                 # Draw ROI on the image copy if ROI exists
-                if roi:
+                if roi and isinstance(roi, dict) and all(k in roi for k in ['left', 'top', 'width', 'height']):
                     try:
                         draw = ImageDraw.Draw(img_final)
                         x0, y0 = roi['left'], roi['top']
@@ -1065,16 +1075,17 @@ if 'last_action' in st.session_state and st.session_state.last_action:
 
                 # Generate the PDF bytes
                 with st.spinner("Generating PDF document..."):
+                    # Pass metadata if generate_pdf_report_bytes expects it
                     pdf_bytes = generate_pdf_report_bytes(
                         st.session_state.session_id,
                         img_final, # Image with ROI drawn (if applicable)
                         outputs, # Dictionary of text results
-                        st.session_state.dicom_metadata if st.session_state.is_dicom else None # Pass full metadata if needed
+                        st.session_state.dicom_metadata if st.session_state.is_dicom else None # Pass full metadata if needed by report function
                     )
 
                 if pdf_bytes:
                     st.session_state.pdf_report_bytes = pdf_bytes
-                    st.success("PDF report generated successfully! Download button available.")
+                    st.success("PDF report generated successfully! Download button available in the sidebar.")
                     logger.info("PDF generation successful.")
                     st.balloons() # Fun success indicator!
                 else:
