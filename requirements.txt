@@ -9,7 +9,7 @@ transformers>=4.30.0
 torch>=2.0.0
 sentencepiece
 accelerate
-deep-translator>=1.8.0
+deep-translator>=1.9.0 #
 numpy
 fpdf
 requests
