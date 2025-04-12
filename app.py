@@ -498,47 +498,6 @@ with st.sidebar:
             help="Download the generated PDF report."
         )
 
-# --- Demo Mode Handling ---
-if demo_mode and not st.session_state.get("demo_loaded"):
-    logger.info("Activating Demo Mode...")
-    demo_img_path = os.path.join("assets", "demo.png")
-    if os.path.exists(demo_img_path) and PIL_AVAILABLE:
-        try:
-            demo_img = Image.open(demo_img_path).convert("RGB")
-            for key, value in DEFAULT_STATE.items():
-                if key not in {"file_uploader_widget", "demo_loaded"}:
-                    st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
-
-            st.session_state.display_image = demo_img.copy()
-            st.session_state.processed_image = demo_img.copy()
-            st.session_state.session_id = "demo-session"
-            st.session_state.history = [
-                ("System", "Demo mode activated. Sample Chest X-ray loaded."),
-                ("User Question", "Are there any signs of pneumonia?"),
-                ("AI Answer", "This is a simulated response for demonstration purposes.")
-            ]
-            st.session_state.initial_analysis = "Demo Initial Analysis: Simulated findings in the right lower lobe."
-            st.session_state.qa_answer = st.session_state.history[-1][1]
-            st.session_state.demo_loaded = True
-            st.success("🚀 Demo mode activated! Sample image loaded.")
-            logger.info("Demo mode successfully loaded.")
-            st.rerun()
-        except FileNotFoundError:
-            st.sidebar.error("Demo image (demo.png) not found.")
-            st.session_state.demo_loaded = False
-        except UnidentifiedImageError:
-            st.sidebar.error("Demo image (demo.png) is invalid.")
-            st.session_state.demo_loaded = False
-        except Exception as e:
-            st.sidebar.error(f"Error loading demo: {e}")
-            logger.error(f"Error loading demo image: {e}", exc_info=True)
-            st.session_state.demo_loaded = False
-    elif not PIL_AVAILABLE:
-        st.sidebar.error("Cannot load demo image because Pillow is missing.")
-    else:
-        st.sidebar.warning("demo.png not found in 'assets' folder.")
-        logger.warning("Demo image file not found.")
-
 # --- File Upload Logic ---
 if uploaded_file is not None:
     try:
@@ -637,6 +596,11 @@ if uploaded_file is not None:
                 st.session_state.display_image = None
                 st.session_state.processed_image = None
                 st.session_state.is_dicom = False
+
+# --- Display Uploaded Image (Minimal Addition) ---
+# If an image has been processed, immediately display it.
+if st.session_state.get("display_image") is not None:
+    st.image(st.session_state.display_image, caption="Uploaded Image", use_column_width=True)
 
 # --- Main Page ---
 st.markdown("---")
