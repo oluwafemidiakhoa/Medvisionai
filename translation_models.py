@@ -10,6 +10,9 @@ Dependency Handling:
 - If the import fails, a WARNING is logged once, and translation/detection
   functions will return None without further error messages about the missing library.
 - Ensure 'deep-translator' is installed in the correct Python environment.
+
+WORKAROUND APPLIED: Removed import/handling of BadSourceLanguage/BadTargetLanguage
+due to persistent ImportError on the platform, even when the library version seems correct.
 """
 
 import logging
@@ -27,25 +30,29 @@ TRANSLATE_WARN_LENGTH = 4800      # Warn if text exceeds this length
 # --- Dependency Import and Check ---
 DEEP_TRANSLATOR_AVAILABLE = False
 GoogleTranslator = None
-TranslationNotFound: Type[Exception] = Exception # Default to base Exception
+# Define base types first
+TranslationNotFound: Type[Exception] = Exception
 NotValidPayload: Type[Exception] = Exception
 NotValidLength: Type[Exception] = Exception
 RequestError: Type[Exception] = Exception
 TooManyRequests: Type[Exception] = Exception
+# WORKAROUND: Initialize BadSourceLanguage/BadTargetLanguage to base Exception
+# as we won't import/catch them specifically due to the persistent ImportError.
 BadSourceLanguage: Type[Exception] = Exception
 BadTargetLanguage: Type[Exception] = Exception
+
 
 try:
     # Attempt to import the necessary components
     from deep_translator import GoogleTranslator as _GoogleTranslator
+    # WORKAROUND: Import only the exceptions known NOT to cause the ImportError
     from deep_translator.exceptions import (
         TranslationNotFound as _TranslationNotFound,
         NotValidPayload as _NotValidPayload,
         NotValidLength as _NotValidLength,
         RequestError as _RequestError,
-        TooManyRequests as _TooManyRequests,
-        BadSourceLanguage as _BadSourceLanguage,
-        BadTargetLanguage as _BadTargetLanguage
+        TooManyRequests as _TooManyRequests
+        # EXCLUDED: BadSourceLanguage, BadTargetLanguage
     )
 
     # If import successful, assign to module-level variables and set flag
@@ -55,19 +62,19 @@ try:
     NotValidLength = _NotValidLength
     RequestError = _RequestError
     TooManyRequests = _TooManyRequests
-    BadSourceLanguage = _BadSourceLanguage
-    BadTargetLanguage = _BadTargetLanguage
+    # BadSourceLanguage/BadTargetLanguage remain as base Exception type
     DEEP_TRANSLATOR_AVAILABLE = True
-    logger.info("Successfully imported 'deep-translator'. Translation features enabled.")
+    logger.info("Successfully imported 'deep-translator' (with workaround for language exceptions). Translation features enabled.")
 
+# NOTE: The ImportError below should NO LONGER be triggered by BadSourceLanguage,
+# but we keep it for general import failures of deep_translator itself.
 except ImportError as import_error:
     # Log the specific import error once when the module is loaded
     logger.warning(
-        f"Could not import 'deep-translator' library. Translation features will be disabled. "
+        f"Could not import 'deep-translator' library components. Translation features will be disabled. "
         f"Ensure it is installed in the correct environment. Error details: {import_error}"
     )
     # DEEP_TRANSLATOR_AVAILABLE remains False
-    # Exception types remain the base Exception class for graceful failure in except blocks below
 
 except Exception as general_error:
      # Catch other potential issues during import setup
@@ -77,6 +84,7 @@ except Exception as general_error:
          exc_info=True # Log traceback for unexpected errors
      )
      # DEEP_TRANSLATOR_AVAILABLE remains False
+
 
 # --- Language Configuration ---
 # (Using user-friendly names as keys for easier UI integration)
@@ -225,7 +233,7 @@ def translate(
             # This can happen, e.g., if translating empty strings after HTML stripping by the lib
             logger.warning("Translation API returned None. Input may have become empty after processing.")
             # Return original text if input was non-empty, otherwise empty string is fine
-            return text if text.strip() else ""
+            return text if text.strip() else "" # Return original text if API gives None for non-empty input
         if not isinstance(translated_text, str):
             logger.error(f"Translation API returned a non-string result: {type(translated_text)}. Value: {translated_text!r}")
             return None # Indicate failure
@@ -247,19 +255,21 @@ def translate(
     except NotValidLength as e:
         logger.error(f"Text length issue during translation: {e}", exc_info=True)
         return None
-    except (BadSourceLanguage, BadTargetLanguage) as e:
-        # Should be less common with our code lookups, but possible with 'auto' or new languages
-        logger.error(f"Invalid source/target language code used for translation API: {e}", exc_info=True)
-        return None
+    # WORKAROUND: Removed specific catch for BadSourceLanguage/BadTargetLanguage
+    # except (BadSourceLanguage, BadTargetLanguage) as e:
+    #     logger.error(f"Invalid source/target language code used for translation API: {e}", exc_info=True)
+    #     return None
     except (RequestError, TooManyRequests) as e:
         logger.error(f"API request error during translation (network issue, quota exceeded, etc.): {e}", exc_info=True)
         return None
     except Exception as e:
-        # Catch any other unexpected errors from the library or logic
+        # Catch any other unexpected errors from the library or logic, including potentially
+        # the underlying errors that BadSource/TargetLanguage would have represented.
         logger.error(f"Unexpected error during translation: {e}", exc_info=True)
         return None
 
 # --- Test Code (for direct execution) ---
+# (Self-test remains the same)
 if __name__ == "__main__":
     import sys
     # Setup basic logging to console for testing
