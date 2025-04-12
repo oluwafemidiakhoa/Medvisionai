@@ -1,15 +1,36 @@
-streamlit
-streamlit-drawable-canvas
-Pillow
-pydicom
-pylibjpeg
-pylibjpeg-libjpeg
-python-gdcm
-transformers>=4.30.0
-torch>=2.0.0
-sentencepiece
-accelerate
-deep-translator==1.11.4
-numpy
-fpdf
-requests
+
+
+
+
+# Core Framework
+streamlit==1.44.1  # Pin Streamlit version (from logs)
+
+# UI Components
+streamlit-drawable-canvas==0.9.3 # Pin known version (update if needed)
+
+# Image Processing
+Pillow==11.1.0      # Pin PIL version (from logs)
+
+# DICOM Processing
+pydicom==3.0.1       # Pin version (from logs)
+pylibjpeg           # For JPEG compressed DICOM (usually okay with latest)
+pylibjpeg-libjpeg   # Backend for pylibjpeg (usually okay with latest)
+python-gdcm         # Alternative DICOM handler (usually okay with latest)
+
+# AI / Machine Learning Core (Hugging Face ecosystem)
+transformers>=4.30.0  # Keep minimum version, allow updates
+torch>=2.0.0          # Keep minimum version
+sentencepiece       # Needed by some tokenizers (usually okay with latest)
+accelerate          # For efficient model loading/inference (usually okay with latest)
+
+# Translation Service (Pinning due to previous import issues)
+deep-translator==1.11.4 # CRITICAL: Pinning specific version confirmed in build
+
+# Core Dependencies (Often pulled by others, listed for clarity/pinning)
+numpy>=1.23       # Fundamental numeric library (ensure compatible version)
+requests>=2.27    # For HTTP requests (e.g., HF API, translation)
+protobuf<4        # Explicit constraint from base build steps, good to maintain
+pyyaml>=6.0       # Used by HF Hub / Transformers config loading
+
+# Report Generation
+fpdf              # For generating PDF reports (usually okay with latest)
