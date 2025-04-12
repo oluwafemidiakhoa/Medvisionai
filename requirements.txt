@@ -7,7 +7,7 @@ streamlit
 streamlit-drawable-canvas
 
 # --- Image Processing ---
-Pillow # Handles general image loading, manipulation (Note: 'pillow' is an alias)
+Pillow # Handles general image loading, manipulation
 
 # --- DICOM Processing ---
 pydicom
@@ -21,6 +21,9 @@ torch>=2.0.0         # Required backend for Transformers (PyTorch)
 sentencepiece      # Often required for specific tokenizers used by Transformers models
 accelerate         # Helps optimize model loading and inference on available hardware
 
+# --- Translation --- # <-- ADDED THIS PACKAGE
+deep-translator     # For language detection and translation
+
 # --- Numerical & Data Handling ---
 numpy              # Fundamental package for numerical operations (often a dependency)
 
@@ -30,5 +33,5 @@ fpdf               # For generating PDF reports
 # --- Utility ---
 requests           # For making HTTP requests (often needed by HF libraries or others)
 
-# Note: Redundant entries like 'pillow' (lowercase) and duplicate 'torch'/'transformers' removed.
+# Note: Redundant entries like 'pillow' (lowercase) removed.
 # Version specifiers kept where provided by user.
