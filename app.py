@@ -59,62 +59,6 @@ logger.info("--- RadVision AI Application Start ---")
 logger.info(f"Streamlit Version: {st.__version__}")
 logger.info(f"Logging Level: {LOG_LEVEL}")
 
-# <<< START DEBUG CODE >>>
-import pkg_resources # Or importlib.metadata if Python >= 3.8
-import inspect
-
-st.subheader("Runtime Environment Debug Info")
-logger.info("--- STARTING RUNTIME ENVIRONMENT CHECK ---")
-
-st.write(f"**Python Executable:** `{sys.executable}`")
-logger.info(f"Runtime Python Executable: {sys.executable}")
-st.write(f"**Working Directory:** `{os.getcwd()}`")
-logger.info(f"Runtime Working Directory: {os.getcwd()}")
-# st.write(f"**sys.path:**") # Can be very long, log instead
-# st.code(str(sys.path))
-logger.info(f"Runtime sys.path: {sys.path}")
-
-try:
-    # Check deep-translator version and location
-    dt_version = "Not Found"
-    dt_location = "Not Found"
-    try:
-        # Use pkg_resources (older Python) or importlib.metadata (newer)
-        dt_version = pkg_resources.get_distribution("deep-translator").version
-        # Alternative for Python 3.8+
-        # from importlib.metadata import version
-        # dt_version = version("deep-translator")
-    except Exception as e_ver:
-        dt_version = f"Error getting version: {e_ver}"
-
-    try:
-         import deep_translator
-         dt_location = os.path.dirname(inspect.getfile(deep_translator))
-    except ImportError:
-         dt_location = "Import failed"
-    except Exception as e_loc:
-         dt_location = f"Error getting location: {e_loc}"
-
-    st.write(f"**Deep Translator:** Version `{dt_version}`, Location: `{dt_location}`")
-    logger.info(f"Runtime deep-translator: Version={dt_version}, Location={dt_location}")
-
-    # Explicitly try to import the problematic name
-    from deep_translator.exceptions import BadSourceLanguage
-    st.success("`BadSourceLanguage` imported successfully in runtime check.")
-    logger.info("`BadSourceLanguage` imported successfully in runtime check.")
-
-except ImportError as e_imp:
-    st.error(f"IMPORT ERROR during runtime check: {e_imp}")
-    logger.error(f"IMPORT ERROR during runtime check: {e_imp}")
-except Exception as e_gen:
-    st.error(f"GENERAL ERROR during runtime check: {e_gen}")
-    logger.error(f"GENERAL ERROR during runtime check: {e_gen}", exc_info=True)
-
-logger.info("--- COMPLETED RUNTIME ENVIRONMENT CHECK ---")
-st.write("--- End Debug Info ---")
-# <<< END DEBUG CODE >>>
-
-
 # --- Streamlit Drawable Canvas ---
 try:
     from streamlit_drawable_canvas import st_canvas
