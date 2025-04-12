@@ -1,37 +1,15 @@
-# requirements.txt for RadVision AI Advanced
-
-# --- Core Application Framework ---
 streamlit
-
-# --- UI Components ---
 streamlit-drawable-canvas
-
-# --- Image Processing ---
-Pillow # Handles general image loading, manipulation
-
-# --- DICOM Processing ---
+Pillow
 pydicom
-pylibjpeg          # For JPEG-compressed DICOM images
-pylibjpeg-libjpeg  # Backend for pylibjpeg
-python-gdcm        # For broader DICOM compatibility (especially compressed formats)
-
-# --- Machine Learning & Transformers ---
-transformers>=4.30.0 # Core Hugging Face library for models
-torch>=2.0.0         # Required backend for Transformers (PyTorch)
-sentencepiece      # Often required for specific tokenizers used by Transformers models
-accelerate         # Helps optimize model loading and inference on available hardware
-
-# --- Translation --- # <-- ADDED THIS PACKAGE
-deep-translator     # For language detection and translation
-
-# --- Numerical & Data Handling ---
-numpy              # Fundamental package for numerical operations (often a dependency)
-
-# --- PDF Generation ---
-fpdf               # For generating PDF reports
-
-# --- Utility ---
-requests           # For making HTTP requests (often needed by HF libraries or others)
-
-# Note: Redundant entries like 'pillow' (lowercase) removed.
-# Version specifiers kept where provided by user.
+pylibjpeg
+pylibjpeg-libjpeg
+python-gdcm
+transformers>=4.30.0
+torch>=2.0.0
+sentencepiece
+accelerate
+deep-translator
+numpy
+fpdf
+requests
