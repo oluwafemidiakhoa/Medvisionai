@@ -26,7 +26,14 @@ from typing import Any, Dict, Optional, Tuple, List, Union # Added Union
 import copy
 import random  # For Tip of the Day
 import re      # For formatting the translation output
+import subprocess
+import sys
 
+try:
+    from deep_translator import GoogleTranslator
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "deep-translator"])
+    from deep_translator import GoogleTranslator
 # --- Logging Setup (Early) ---
 # Set level from environment variable or default to INFO
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
