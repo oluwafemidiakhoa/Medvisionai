@@ -37,7 +37,7 @@ DISEASE_SPECIFIC_PROMPT_TEMPLATE = f"""{_BASE_ROLE_PROMPT}
 **Focus solely on visual findings related to {{disease}}.**
 """
 
-# Prompt for AI self-assessment (QUALITATIVE ONLY)
+# Prompt for AI self-assessment (QUALITATIVE ONLY - Renamed from Confidence)
 SELF_ASSESSMENT_PROMPT_TEMPLATE = f"""{_BASE_ROLE_PROMPT}
 
 **Task:** Perform a qualitative self-assessment of the *previous AI response* provided below, considering the context it was generated in. **This is an internal check, not a clinical confidence score.**
@@ -68,7 +68,7 @@ Critically evaluate the **"Previous AI Response"** based on the following factor
     *   Justification: [Did the previous response directly and fully address the user's question or the requested task's scope? Or did it deviate or miss aspects?]
 
 5.  **## 5. Overall Assessment Impression:**
-    *   Impression: [Provide a brief qualitative summary impression - e.g., "High confidence based on clear visual evidence," "Moderate confidence due to some ambiguity," "Low confidence due to poor image quality/non-specific findings."]
+    *   Impression: [Provide a brief qualitative summary impression - e.g., "Assessment suggests response was well-supported by clear visual evidence," "Assessment indicates moderate confidence due to some ambiguity," "Assessment suggests low confidence due to poor image quality/non-specific findings."]
 
 **Reminder:** This assessment reflects the AI's perspective on its previous output's limitations and alignment, **not clinical certainty.**
 """
@@ -134,8 +134,7 @@ def query_gemini_vision(image: Image.Image, text_prompt: str) -> Tuple[Optional[
             "max_output_tokens": 8192, # Leverage large context
         },
         "safety_settings": [
-            # Stricter setting for medical potentially: BLOCK_LOW_AND_ABOVE might be considered,
-            # but BLOCK_MEDIUM is a safer start to avoid over-blocking relevant descriptions. TEST CAREFULLY.
+            # BLOCK_MEDIUM_AND_ABOVE is a reasonable default. Test carefully for medical content.
             {"category": cat, "threshold": "BLOCK_MEDIUM_AND_ABOVE"}
             for cat in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH",
                         "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]
@@ -173,20 +172,15 @@ def query_gemini_vision(image: Image.Image, text_prompt: str) -> Tuple[Optional[
         # 3. Check Finish Reason (Includes safety blocking of response)
         finish_reason = candidate.get('finishReason', 'UNKNOWN')
         if finish_reason != "STOP":
-             # Log details if not a normal stop
              safety_ratings = candidate.get('safetyRatings', [])
              blocked_cats = [sr.get('category', 'UNKNOWN') for sr in safety_ratings if sr.get('blocked')]
              warn_msg = f"Gemini response finished unexpectedly (Reason: {finish_reason})."
              if blocked_cats: warn_msg += f" Blocked safety categories: {blocked_cats}"
              logger.warning(warn_msg)
-             # Treat SAFETY finish reason as a failure
              if finish_reason == "SAFETY":
                  return f"API Error: Response generation blocked by safety filters. Categories: {blocked_cats}", False
-             # Treat other non-STOP reasons (MAX_TOKENS, RECITATION, OTHER) as potential issues but might still have partial content
-             # For this use case, let's treat MAX_TOKENS as okay (but log), others as potential errors.
-             elif finish_reason != "MAX_TOKENS":
+             elif finish_reason != "MAX_TOKENS": # Treat MAX_TOKENS as potentially usable partial response
                   return f"API Error: Response generation stopped unexpectedly (Reason: {finish_reason}).", False
-             # If MAX_TOKENS, log and continue to extract content
 
         # 4. Extract Text Content
         content = candidate.get('content', {})
@@ -213,7 +207,6 @@ def query_gemini_vision(image: Image.Image, text_prompt: str) -> Tuple[Optional[
         except: error_details = {}
         error_message = error_details.get("message", e.response.text[:500])
         logger.error(f"HTTP error {status_code} querying Gemini: {error_message}", exc_info=(status_code >= 500))
-        # Provide user-friendly messages based on common codes
         if status_code in [401, 403]: return f"API Error: Authentication/Permission Failed ({status_code}). Check API Key.", False
         if status_code == 429: return "API Error: Rate limit exceeded (429). Please try again later.", False
         return f"API Error: HTTP {status_code}. Details: {error_message}", False
@@ -224,19 +217,23 @@ def query_gemini_vision(image: Image.Image, text_prompt: str) -> Tuple[Optional[
         logger.critical(f"Unexpected critical error during Gemini API interaction: {e}", exc_info=True)
         return f"Internal Error: An unexpected error occurred ({type(e).__name__}).", False
 
+
 # --- Specific Interaction Function Wrappers ---
 
 def _format_roi_info(roi: Optional[Dict]) -> str:
     """Formats ROI dictionary into a string for prompts, handling invalid input."""
     if roi and isinstance(roi, dict) and all(key in roi for key in ["left", "top", "width", "height"]):
         try:
+            # Ensure values are integers for clean display
+            left, top, width, height = map(int, [roi['left'], roi['top'], roi['width'], roi['height']])
             return (f"User has highlighted a Region of Interest (ROI) at "
-                    f"Top-Left=({int(roi['left'])}, {int(roi['top'])}) with "
-                    f"Width={int(roi['width'])}, Height={int(roi['height'])} pixels.")
-        except (TypeError, ValueError):
-            logger.warning("ROI dictionary contained non-integer values.", exc_info=True)
+                    f"Top-Left=({left}, {top}) with "
+                    f"Width={width}, Height={height} pixels.")
+        except (TypeError, ValueError, KeyError):
+            logger.warning("ROI dictionary contained invalid/missing keys or non-numeric values.", exc_info=True)
             return "ROI provided but coordinates appear invalid."
-    return "No specific region highlighted by user."
+    return "Analysis applies to the entire image (no specific ROI highlighted)." # More explicit default
+
 
 def _format_history_text(history: List[Tuple[str, str, Any]]) -> str:
     """Formats recent conversation history for the prompt context."""
@@ -248,26 +245,34 @@ def _format_history_text(history: List[Tuple[str, str, Any]]) -> str:
         try:
             q_type = entry[0] if len(entry) > 0 else "[Type Missing]"
             msg = entry[1] if len(entry) > 1 else "[Message Missing]"
-            # Simple formatting, avoid including raw fallback tags directly if possible
+            # Simple formatting, indicate source clearly
             if "[fallback]" in q_type.lower():
-                formatted_entries.append(f"User: {q_type.split(']')[1].strip()}\nAI (Fallback): {msg}")
+                # Extract user question part if available
+                user_q_part = q_type.split(']')[1].strip() if ']' in q_type else "[User Question]"
+                formatted_entries.append(f"User: {user_q_part}\nAI (Fallback): {msg}")
             elif "user" in q_type.lower():
                  formatted_entries.append(f"User: {msg}")
             elif "ai" in q_type.lower():
                  formatted_entries.append(f"AI: {msg}")
+            else: # Handle system messages or other types if necessary
+                 formatted_entries.append(f"{q_type}: {msg}")
+
         except Exception as e:
             logger.warning(f"Skipping malformed history entry {entry}: {e}")
             continue
     return "\n---\n".join(formatted_entries) if formatted_entries else "No processable conversation history available."
 
+
 def run_initial_analysis(image: Image.Image, roi: Optional[Dict] = None) -> str:
-    """Performs initial analysis, returning result or formatted error message."""
+    """Performs initial structured analysis, returning result or formatted error message."""
     action_name = "Initial Analysis"
     logger.info(f"Requesting {action_name}. ROI: {bool(roi)}")
     roi_info = _format_roi_info(roi)
     prompt = INITIAL_ANALYSIS_PROMPT_TEMPLATE.format(roi_info=roi_info)
     response_text, success = query_gemini_vision(image, prompt)
-    return response_text if success else f"{action_name} Failed: {response_text or 'Unknown API error.'}"
+    # Prefix error clearly for the UI
+    return response_text if success else f"**{action_name} Failed:** {response_text or 'Unknown API error.'}"
+
 
 def run_multimodal_qa(
     image: Image.Image, question: str, history: List[Tuple[str, str, Any]], roi: Optional[Dict] = None
@@ -279,8 +284,9 @@ def run_multimodal_qa(
     history_text = _format_history_text(history)
     prompt = QA_CONTEXT_PROMPT_TEMPLATE.format(roi_info=roi_info, history_text=history_text, question=question)
     response_text, success = query_gemini_vision(image, prompt)
-    # Return tuple directly as expected by app.py
-    return response_text if response_text else "Error: No response received from API.", success
+    # Return tuple directly; error message already formatted by query_gemini_vision if needed
+    return response_text if response_text else "Error: No response text received from API.", success
+
 
 def run_disease_analysis(image: Image.Image, disease: str, roi: Optional[Dict] = None) -> str:
     """Performs disease-focused analysis, returning result or formatted error."""
@@ -289,72 +295,90 @@ def run_disease_analysis(image: Image.Image, disease: str, roi: Optional[Dict] =
     roi_info = _format_roi_info(roi)
     prompt = DISEASE_SPECIFIC_PROMPT_TEMPLATE.format(disease=disease, roi_info=roi_info)
     response_text, success = query_gemini_vision(image, prompt)
-    return response_text if success else f"{action_name} Failed ({disease}): {response_text or 'Unknown API error.'}"
+    # Prefix error clearly for the UI
+    return response_text if success else f"**{action_name} Failed ({disease}):** {response_text or 'Unknown API error.'}"
+
 
 def run_llm_self_assessment(
-    image: Image.Image, history: List[Tuple[str, str, Any]], roi: Optional[Dict] = None
-) -> str:
-    """Requests the AI to perform a qualitative self-assessment of its last response."""
+    image: Image.Image, # Image associated with the interaction being assessed
+    history: List[Tuple[str, str, Any]],
+    roi: Optional[Dict] = None # ROI state during the interaction being assessed
+    ) -> str:
+    """
+    Requests the AI to perform a qualitative self-assessment of its last response.
+    This is experimental and NOT a clinical confidence score.
+
+    Args:
+        image: The PIL Image corresponding to the last interaction.
+        history: List of previous interaction tuples. Must not be empty.
+        roi: The ROI dictionary active during the last interaction being evaluated.
+
+    Returns:
+        A string containing the AI's self-assessment based on the defined factors,
+        or a string prefixed with "LLM Self-Assessment Failed: ".
+    """
     action_name = "LLM Self-Assessment (Experimental)"
     logger.info(f"Requesting {action_name}. History length: {len(history)}. ROI used previously: {bool(roi)}")
 
     if not history:
         logger.warning(f"{action_name} requested without history.")
-        return f"{action_name} Failed: No conversation history available to assess."
+        return f"**{action_name} Failed:** No conversation history available to assess."
 
+    # --- Safely extract the last Q/A pair to assess ---
+    last_q, last_a = "[Question Missing]", "[Answer Missing]"
     try:
-        # Get context of the very last interaction (Q&A)
-        last_q_type, last_a_or_q_msg = "[Type Missing]", "[Message Missing]"
-        last_q, last_a = "[Question Missing]", "[Answer Missing]"
-
-        # Iterate backwards to find the last Q/A pair
         last_ai_answer_entry = None
         last_user_question_entry = None
-        for entry in reversed(history):
+        for entry in reversed(history): # Search backwards
              entry_type = entry[0].lower() if len(entry) > 0 else ""
              entry_msg = entry[1] if len(entry) > 1 else ""
+             # Find the most recent AI answer first
              if "ai answer" in entry_type and not last_ai_answer_entry:
                  last_ai_answer_entry = (entry_type, entry_msg)
+             # Then find the user question that likely preceded it
              elif "user question" in entry_type and not last_user_question_entry:
                  last_user_question_entry = (entry_type, entry_msg)
+             # Stop once we have the pair related to the last AI answer
              if last_ai_answer_entry and last_user_question_entry:
-                 break # Found the most recent pair
+                 break
 
         if not last_ai_answer_entry or not last_user_question_entry:
-             logger.error("Could not reliably extract the last Q/A pair from history.")
-             return f"{action_name} Failed: Cannot determine the last interaction to assess."
+             raise ValueError("Could not find a preceding User/AI pair in history.")
 
         last_q = last_user_question_entry[1]
         last_a = last_ai_answer_entry[1]
 
-        # Pre-check: If the last answer indicates failure, return low assessment directly
+        # --- Pre-check: If last answer was an error, provide direct feedback ---
         if isinstance(last_a, str) and any(err in last_a.lower() for err in ["error:", "failed:", "blocked", "unavailable", "could not"]):
-            logger.warning(f"Last interaction was an error/failure ('{last_a[:100]}...'). Reporting low assessment directly.")
-            return (f"## 1. Clarity of Findings:\n   Justification: N/A - Previous step resulted in an error.\n"
-                    f"## 2. Sufficiency of Visual Information:\n   Justification: N/A - Error state.\n"
-                    f"## 3. Potential Ambiguity:\n   Justification: N/A - Error state.\n"
-                    f"## 4. Scope Alignment:\n   Justification: N/A - The previous request failed.\n"
+            logger.warning(f"Last interaction was an error ('{last_a[:100]}...'). Reporting low assessment directly.")
+            return (f"**{action_name} Result:**\n\n"
+                    f"## 1. Clarity of Findings:\n   Justification: N/A - Previous step resulted in an error.\n\n"
+                    f"## 2. Sufficiency of Visual Information:\n   Justification: N/A - Error state.\n\n"
+                    f"## 3. Potential Ambiguity:\n   Justification: N/A - Error state.\n\n"
+                    f"## 4. Scope Alignment:\n   Justification: N/A - The previous request failed.\n\n"
                     f"## 5. Overall Assessment Impression:\n   Impression: Assessment not possible due to prior error.")
 
-    except IndexError:
-         logger.error("History list structure error during self-assessment setup.")
-         return f"{action_name} Failed: Error processing interaction history."
+    except Exception as e:
+         logger.error(f"Error processing history for self-assessment: {e}", exc_info=True)
+         return f"**{action_name} Failed:** Error processing interaction history."
 
-    # Format ROI info relevant to the *last interaction* being assessed
-    roi_info = _format_roi_info(roi) # Assumes ROI state passed corresponds to the last interaction
-
+    # --- Prepare and Run Assessment Prompt ---
+    roi_info = _format_roi_info(roi) # Format ROI state from the time of the last answer
     prompt = SELF_ASSESSMENT_PROMPT_TEMPLATE.format(last_q=last_q, last_a=last_a, roi_info=roi_info)
 
     # Call the API using the *same image* associated with the last interaction
     response_text, success = query_gemini_vision(image, prompt)
 
     if success and response_text:
-        # Simple check if expected markdown headers are present
+        # Basic check for expected structure
         if "## 1. Clarity" in response_text and "## 5. Overall Assessment" in response_text:
             logger.info("LLM Self-Assessment received in expected format.")
-            return response_text
+            # Prepend title for clarity in UI
+            return f"**{action_name} Result:**\n\n{response_text}"
         else:
             logger.warning(f"Self-assessment response did not match expected Markdown format:\n'''{response_text}'''")
-            return f"LLM Self-Assessment Response (Format Warning):\n{response_text}" # Return raw but flag
+            # Return raw but flag it and add title
+            return f"**{action_name} Result (Format Warning):**\n\n{response_text}"
     else:
-        return f"{action_name} Failed: {response_text or 'Unknown API error.'}"
+        # Prefix error clearly for the UI
+        return f"**{action_name} Failed:** {response_text or 'Unknown API error.'}"
