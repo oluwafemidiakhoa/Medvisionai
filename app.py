@@ -25,7 +25,7 @@ import io
 import os
 import uuid
 import logging
-import base64 # Needed for image conversion fix
+import base64  # Needed for image conversion fix
 import hashlib
 import subprocess
 import sys
@@ -98,10 +98,16 @@ try:
     PYDICOM_VERSION = getattr(pydicom, '__version__', 'Unknown')
     logger.info(f"Pydicom Version: {PYDICOM_VERSION}")
     PYDICOM_AVAILABLE = True
-    try: import pylibjpeg; logger.info("pylibjpeg found.")
-    except ImportError: logger.info("pylibjpeg not found (optional).")
-    try: import gdcm; logger.info("python-gdcm found.")
-    except ImportError: logger.info("python-gdcm not found (optional).")
+    try:
+        import pylibjpeg
+        logger.info("pylibjpeg found.")
+    except ImportError:
+        logger.info("pylibjpeg not found (optional).")
+    try:
+        import gdcm
+        logger.info("python-gdcm found.")
+    except ImportError:
+        logger.info("python-gdcm not found (optional).")
 except ImportError:
     PYDICOM_VERSION = 'Not Installed'
     logger.warning("pydicom not found. DICOM functionality will be disabled.")
@@ -137,7 +143,7 @@ except ImportError as e:
     st.error(f"Core AI module (llm_interactions) failed to import: {e}. Analysis functions disabled.")
     logger.critical(f"Failed to import llm_interactions: {e}", exc_info=True)
     LLM_INTERACTIONS_AVAILABLE = False
-    st.stop() # Core functionality missing, stop the app
+    st.stop()  # Core functionality missing, stop the app
 # --- ^ ^ ^ --- END OF UPDATED IMPORT BLOCK --- ^ ^ ^ ---
 
 try:
@@ -283,6 +289,15 @@ def pil_to_base64_url(img: Image.Image, format: str = "PNG") -> Optional[str]:
         logger.error(f"Error converting PIL Image to base64 URL: {e}", exc_info=True)
         return None
 
+# --- Patch: Add image_to_url to streamlit.elements.image if missing ---
+try:
+    import streamlit.elements.image as st_image
+    if not hasattr(st_image, "image_to_url"):
+        st_image.image_to_url = pil_to_base64_url
+        logger.info("Patched st.elements.image.image_to_url using pil_to_base64_url.")
+except Exception as e:
+    logger.error(f"Failed to patch st_image.image_to_url: {e}")
+
 # --- Sidebar ---
 # (Keeping this logic as it is, including button names and help text)
 with st.sidebar:
@@ -328,7 +343,6 @@ with st.sidebar:
          logger.info("Demo Mode deactivated.")
          # Add state reset logic if needed when demo is turned off
          st.session_state.demo_loaded = False
-
 
     if DRAWABLE_CANVAS_AVAILABLE:
         if st.button("🗑️ Clear ROI", help="Remove the selected ROI rectangle"):
@@ -415,7 +429,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.header("📊 Reporting & Assessment")
-    can_estimate = bool(st.session_state.history) # Can only assess if there's history
+    can_estimate = bool(st.session_state.history)  # Can only assess if there's history
     if st.button("🧪 Estimate LLM Self-Assessment (Experimental)", key="confidence_btn",
                  disabled=not can_estimate or action_disabled,
                  help="EXPERIMENTAL: Ask the LLM to assess its last Q&A response. Not a clinical confidence score."):
@@ -565,9 +579,9 @@ with col1:
             st.caption("Draw a rectangle below to select a Region of Interest (ROI).")
 
             # --- Canvas Background Image Fix Applied Here ---
-            background_url = pil_to_base64_url(display_img) # Convert PIL Image to base64 URL
+            background_url = pil_to_base64_url(display_img)  # Convert PIL Image to base64 URL
 
-            if background_url: # Check if conversion was successful
+            if background_url:  # Check if conversion was successful
                 MAX_CANVAS_WIDTH = 600
                 MAX_CANVAS_HEIGHT = 550
                 img_w, img_h = display_img.size
@@ -629,7 +643,7 @@ with col1:
                 st.error("Could not convert image for canvas background.")
                 st.image(display_img, caption="Image Preview (Canvas background error)", use_container_width=True)
 
-        else: # Fallback if canvas is not available
+        else:  # Fallback if canvas is not available
             st.image(display_img, caption="Image Preview (ROI drawing disabled)", use_container_width=True)
 
         # Display current ROI coordinates (remains the same)
@@ -921,10 +935,10 @@ if current_action:
                 st.toast("🧪 Estimating LLM self-assessment (Experimental)...", icon="⏳")
                 with st.spinner("AI assessing its previous responses..."):
                     # Calling the correctly imported and named function
-                    assessment_result = run_llm_self_assessment( # <<<--- CORRECTED FUNCTION CALL HERE
-                        image=img_for_llm, # Pass the correct image variable
+                    assessment_result = run_llm_self_assessment(  # <<<--- CORRECTED FUNCTION CALL HERE
+                        image=img_for_llm,  # Pass the correct image variable
                         history=current_history,
-                        roi=roi_coords # Pass the ROI state from the time of the last assessed interaction
+                        roi=roi_coords  # Pass the ROI state from the time of the last assessed interaction
                     )
                 # Store the result in the session state key the UI uses
                 st.session_state.confidence_score = assessment_result
