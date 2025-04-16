@@ -299,6 +299,8 @@ def run_disease_analysis(image: Image.Image, disease: str, roi: Optional[Dict] =
     return response_text if success else f"**{action_name} Failed ({disease}):** {response_text or 'Unknown API error.'}"
 
 
+# Replace the existing run_llm_self_assessment function with this corrected version:
+
 def run_llm_self_assessment(
     image: Image.Image, # Image associated with the interaction being assessed
     history: List[Tuple[str, str, Any]],
@@ -316,7 +318,7 @@ def run_llm_self_assessment(
     Returns:
         A string containing the AI's self-assessment based on the defined factors,
         or a string prefixed with "LLM Self-Assessment Failed: ".
-    """
+    """ # <<< CORRECTED: Added closing triple quotes here
     action_name = "LLM Self-Assessment (Experimental)"
     logger.info(f"Requesting {action_name}. History length: {len(history)}. ROI used previously: {bool(roi)}")
 
@@ -351,6 +353,7 @@ def run_llm_self_assessment(
         # --- Pre-check: If last answer was an error, provide direct feedback ---
         if isinstance(last_a, str) and any(err in last_a.lower() for err in ["error:", "failed:", "blocked", "unavailable", "could not"]):
             logger.warning(f"Last interaction was an error ('{last_a[:100]}...'). Reporting low assessment directly.")
+            # Return formatted assessment indicating failure
             return (f"**{action_name} Result:**\n\n"
                     f"## 1. Clarity of Findings:\n   Justification: N/A - Previous step resulted in an error.\n\n"
                     f"## 2. Sufficiency of Visual Information:\n   Justification: N/A - Error state.\n\n"
@@ -358,7 +361,7 @@ def run_llm_self_assessment(
                     f"## 4. Scope Alignment:\n   Justification: N/A - The previous request failed.\n\n"
                     f"## 5. Overall Assessment Impression:\n   Impression: Assessment not possible due to prior error.")
 
-    except Exception as e:
+    except Exception as e: # Catch broader exceptions during history processing
          logger.error(f"Error processing history for self-assessment: {e}", exc_info=True)
          return f"**{action_name} Failed:** Error processing interaction history."
 
