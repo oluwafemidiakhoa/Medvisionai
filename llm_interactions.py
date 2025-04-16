@@ -299,6 +299,7 @@ def run_disease_analysis(image: Image.Image, disease: str, roi: Optional[Dict] =
     return response_text if success else f"**{action_name} Failed ({disease}):** {response_text or 'Unknown API error.'}"
 
 
+# --- THIS IS THE FUNCTION WITH THE CORRECTED DOCSTRING ---
 def run_llm_self_assessment(
     image: Image.Image, # Image associated with the interaction being assessed
     history: List[Tuple[str, str, Any]],
@@ -316,7 +317,7 @@ def run_llm_self_assessment(
     Returns:
         A string containing the AI's self-assessment based on the defined factors,
         or a string prefixed with "LLM Self-Assessment Failed: ".
-    """ # <<< ENSURED THIS CLOSING QUOTE IS PRESENT
+    """ # <<< VERIFIED CLOSING TRIPLE QUOTES ARE PRESENT HERE
     action_name = "LLM Self-Assessment (Experimental)"
     logger.info(f"Requesting {action_name}. History length: {len(history)}. ROI used previously: {bool(roi)}")
 
@@ -383,3 +384,4 @@ def run_llm_self_assessment(
     else:
         # Prefix error clearly for the UI
         return f"**{action_name} Failed:** {response_text or 'Unknown API error.'}"
+# --- End of llm_interactions.py ---
