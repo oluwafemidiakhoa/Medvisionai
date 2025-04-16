@@ -290,11 +290,19 @@ with st.sidebar: # ... [Existing Sidebar Code] ...
             logger.info(f"DICOM W/L changed via UI: WC={new_wc}, WW={new_ww}"); st.session_state.current_display_wc = new_wc; st.session_state.current_display_ww = new_ww
             if st.session_state.dicom_dataset:
                 with st.spinner("Applying new Window/Level..."):
-                    try: new_display_img = dicom_to_image( st.session_state.dicom_dataset, wc=new_wc, ww=new_ww )
-                    if isinstance(new_display_img, Image.Image): st.session_state.display_image = new_display_img.convert('RGB') if new_display_img.mode != 'RGB' else new_display_img; st.rerun()
-                    else: st.error("Failed to update DICOM image display."); logger.error("dicom_to_image returned non-image for W/L update.")
-                    except Exception as e: st.error(f"Error applying W/L: {e}"); logger.error(f"W/L application error: {e}", exc_info=True)
-            else: st.warning("DICOM dataset unavailable to update W/L.")
+                    try:
+                        new_display_img = dicom_to_image(st.session_state.dicom_dataset, wc=new_wc, ww=new_ww)
+                        if isinstance(new_display_img, Image.Image):
+                            st.session_state.display_image = new_display_img.convert('RGB') if new_display_img.mode != 'RGB' else new_display_img
+                            st.rerun()
+                        else:
+                            st.error("Failed to update DICOM image display.")
+                            logger.error("dicom_to_image returned non-image for W/L update.")
+                    except Exception as e:
+                        st.error(f"Error applying W/L: {e}")
+                        logger.error(f"W/L application error: {e}", exc_info=True)
+            else:
+                st.warning("DICOM dataset unavailable to update W/L.")
     st.markdown("---"); st.header("🤖 AI Analysis Actions"); action_disabled = not LLM_INTERACTIONS_AVAILABLE or not isinstance(st.session_state.get("processed_image"), Image.Image)
     if st.button("🔬 Run Structured Initial Analysis", key="analyze_btn", disabled=action_disabled, help="Perform a general, structured analysis..."): st.session_state.last_action = "analyze"; st.rerun()
     st.subheader("❓ Ask AI a Question"); question_input = st.text_area( "Enter your question about the image:", height=100, key="question_input_widget", placeholder="E.g., 'Describe findings...'", disabled=action_disabled )
