@@ -5,6 +5,8 @@ import pydicom.valuerep
 import numpy as np
 import logging
 
+from umls_utils import UMLSConcept  # For UMLS concept display
+
 logger = logging.getLogger(__name__)
 
 # --- DICOM Metadata Display ---
@@ -12,11 +14,6 @@ logger = logging.getLogger(__name__)
 def display_dicom_metadata(metadata: Optional[Dict[str, Any]]) -> None:
     """
     Displays formatted DICOM metadata in a Streamlit expander, arranged in two columns.
-
-    Args:
-        metadata: A dictionary containing DICOM tags (keys) and their values.
-                  Handles basic formatting for lists, UIDs, bytes, and sensitive types.
-                  If None or empty, displays a placeholder message.
     """
     with st.expander("View DICOM Metadata", expanded=False):
         if not metadata:
@@ -28,7 +25,7 @@ def display_dicom_metadata(metadata: Optional[Dict[str, Any]]) -> None:
         logger.debug(f"Displaying {len(metadata)} metadata items.")
 
         for key, value in metadata.items():
-            display_value = "N/A"  # Default display value
+            display_value = "N/A"
             try:
                 if value is None:
                     display_value = "N/A"
@@ -39,19 +36,16 @@ def display_dicom_metadata(metadata: Optional[Dict[str, Any]]) -> None:
                 elif isinstance(value, bytes):
                     display_value = f"[Binary Data ({len(value)} bytes)]"
                 elif isinstance(value, pydicom.valuerep.PersonName):
-                    # Mask sensitive information or display a placeholder.
                     display_value = "[Person Name]"
                 else:
                     display_value = str(value).strip()
 
-                # Truncate very long strings to improve readability.
                 if len(display_value) > 150:
                     display_value = display_value[:147] + "..."
             except Exception as e:
                 logger.warning(f"Error formatting metadata key '{key}': {e}", exc_info=True)
                 display_value = "[Error formatting value]"
 
-            # Alternate between the two columns.
             cols[col_idx % 2].markdown(f"**{key}:** {display_value}")
             col_idx += 1
 
@@ -63,17 +57,6 @@ def dicom_wl_sliders(
 ) -> Tuple[Optional[float], Optional[float]]:
     """
     Creates Streamlit sliders for adjusting DICOM Window Center (Level) and Width.
-
-    Derives slider ranges and default values from the dataset's pixel data and metadata.
-    Provides a "Reset W/L" button that reruns the app to restore default values.
-
-    Args:
-        ds: The pydicom Dataset object (must contain PixelData).
-        metadata: Dictionary containing extracted metadata, used for default window/level values.
-
-    Returns:
-        A tuple (window_center, window_width) as floats.
-        Returns (None, None) if sliders cannot be created.
     """
     st.subheader("DICOM Window/Level Adjustment")
 
@@ -82,9 +65,8 @@ def dicom_wl_sliders(
         logger.warning("dicom_wl_sliders called with missing Dataset or PixelData.")
         return None, None
 
-    # --- Determine Pixel Range ---
     pixel_min: float = 0.0
-    pixel_max: float = 4095.0  # Default fallback range
+    pixel_max: float = 4095.0
     try:
         pixel_array = ds.pixel_array
         if 'RescaleSlope' in ds and 'RescaleIntercept' in ds:
@@ -99,7 +81,6 @@ def dicom_wl_sliders(
             pixel_max = float(pixel_array.max())
         logger.info(f"Determined pixel value range: Min={pixel_min}, Max={pixel_max}")
 
-        # Avoid zero-width range.
         if pixel_max == pixel_min:
             logger.warning("Pixel data range is zero (constant image). Adjusting range.")
             pixel_max += 1.0
@@ -108,9 +89,7 @@ def dicom_wl_sliders(
         st.caption(f"Could not determine pixel range (Error: {e}). Using default range.")
         logger.error(f"Error determining pixel range for sliders: {e}", exc_info=True)
 
-    # --- Get and Validate Default Window/Level from Metadata ---
     def safe_float_convert(value: Any) -> Optional[float]:
-        """Safely converts a value (or first element of a list) to float."""
         if isinstance(value, (list, pydicom.multival.MultiValue)):
             val_to_convert = value[0] if len(value) > 0 else None
         else:
@@ -120,38 +99,19 @@ def dicom_wl_sliders(
         except (ValueError, TypeError):
             return None
 
-    default_wc_raw = metadata.get("WindowCenter", None)
-    default_ww_raw = metadata.get("WindowWidth", None)
-    default_wc: Optional[float] = safe_float_convert(default_wc_raw)
-    default_ww: Optional[float] = safe_float_convert(default_ww_raw)
+    default_wc = safe_float_convert(metadata.get("WindowCenter")) or ((pixel_max + pixel_min) / 2.0)
+    default_ww = safe_float_convert(metadata.get("WindowWidth")) or max(1.0, (pixel_max - pixel_min) * 0.8)
 
-    calculated_center = (pixel_max + pixel_min) / 2.0
-    calculated_width = max(1.0, (pixel_max - pixel_min) * 0.8)
-
-    if default_wc is None:
-        default_wc = calculated_center
-        logger.debug(f"Using calculated default Window Center: {default_wc:.2f}")
-    if default_ww is None or default_ww <= 0:
-        default_ww = calculated_width
-        logger.debug(f"Using calculated default Window Width: {default_ww:.2f}")
-
-    logger.info(f"Slider defaults - WC: {default_wc:.2f}, WW: {default_ww:.2f}")
-
-    # --- Calculate Slider Bounds ---
     data_range = pixel_max - pixel_min
-    slider_min_level = pixel_min - data_range * 0.5  # Extend 50% below minimum
-    slider_max_level = pixel_max + data_range * 0.5  # Extend 50% above maximum
-    slider_max_width = min(max(1.0, data_range * 2.0), 65536.0)  # Cap maximum width
+    slider_min_level = pixel_min - data_range * 0.5
+    slider_max_level = pixel_max + data_range * 0.5
+    slider_max_width = min(max(1.0, data_range * 2.0), 65536.0)
 
-    clamped_default_wc = max(slider_min_level, min(slider_max_level, default_wc))
-    clamped_default_ww = max(1.0, min(slider_max_width, default_ww))
-
-    # --- Create Sliders ---
     wc = st.slider(
         "Window Center (Level)",
         min_value=slider_min_level,
         max_value=slider_max_level,
-        value=clamped_default_wc,
+        value=max(slider_min_level, min(slider_max_level, default_wc)),
         step=max(0.1, data_range / 1000.0),
         key="dicom_wc_slider",
         help=f"Adjust brightness center. Range: [{pixel_min:.1f} - {pixel_max:.1f}]"
@@ -160,15 +120,31 @@ def dicom_wl_sliders(
         "Window Width",
         min_value=1.0,
         max_value=slider_max_width,
-        value=clamped_default_ww,
+        value=max(1.0, min(slider_max_width, default_ww)),
         step=max(0.1, data_range / 1000.0),
         key="dicom_ww_slider",
         help=f"Adjust contrast range. Data range: {data_range:.1f}"
     )
 
-    # --- Reset Button ---
     if st.button("Reset W/L", key="reset_wl_button"):
         logger.info("Reset W/L button clicked. Rerunning to apply default values.")
         st.rerun()
 
     return float(wc), float(ww)
+
+# --- UMLS Concepts Display ---
+
+def display_umls_concepts(concepts: List[UMLSConcept]) -> None:
+    """
+    Displays a list of standardized UMLS concepts in an expandable panel.
+
+    Args:
+        concepts: A list of UMLSConcept dataclass instances.
+    """
+    with st.expander("Standardized UMLS Concepts", expanded=False):
+        if not concepts:
+            st.write("No UMLS concepts available.")
+            return
+        for concept in concepts:
+            st.markdown(f"- [{concept.name}]({concept.uri})  
+                CUI: `{concept.ui}`, Source: {concept.rootSource}")
