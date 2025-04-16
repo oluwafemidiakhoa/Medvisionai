@@ -7,7 +7,7 @@ using an assumed agentic/structured approach for analysis and Q&A,
 translation, and report generation. Focuses on responsible AI demonstration.
 
 Includes fix for st_canvas background_image issue by manually converting
-PIL Images to base64 data URLs.
+PIL Images to base64 data URLs and uses the corrected llm_interactions import.
 """
 
 import streamlit as st
@@ -121,12 +121,15 @@ except ImportError as e:
         st.warning("DICOM utilities module missing. DICOM processing limited.")
     DICOM_UTILS_AVAILABLE = False
 
+# --- v v v --- THIS IMPORT BLOCK IS UPDATED --- v v v ---
 try:
+    # **ASSUMPTION:** This module uses responsible, agentic prompts (like examples discussed)
+    # for analysis functions, ensuring cautious language, structure, and limitation reporting.
     from llm_interactions import (
         run_initial_analysis,
         run_multimodal_qa,
         run_disease_analysis,
-        run_llm_self_assessment # Using the corrected name
+        run_llm_self_assessment  # <<<--- CORRECTED FUNCTION NAME HERE
     )
     LLM_INTERACTIONS_AVAILABLE = True
     logger.info("llm_interactions imported successfully.")
@@ -134,7 +137,8 @@ except ImportError as e:
     st.error(f"Core AI module (llm_interactions) failed to import: {e}. Analysis functions disabled.")
     logger.critical(f"Failed to import llm_interactions: {e}", exc_info=True)
     LLM_INTERACTIONS_AVAILABLE = False
-    st.stop()
+    st.stop() # Core functionality missing, stop the app
+# --- ^ ^ ^ --- END OF UPDATED IMPORT BLOCK --- ^ ^ ^ ---
 
 try:
     from report_utils import generate_pdf_report_bytes
@@ -258,19 +262,16 @@ def format_translation(translated_text: Optional[str]) -> str:
         logger.error(f"Error formatting translation: {e}", exc_info=True)
         return str(translated_text)
 
-# --- v v v --- NEW HELPER FUNCTION --- v v v ---
+# --- Helper Function for Canvas Fix ---
 def pil_to_base64_url(img: Image.Image, format: str = "PNG") -> Optional[str]:
     """Converts PIL Image to base64 data URL for embedding."""
     try:
         buffered = io.BytesIO()
-        # Ensure compatibility, PNG supports transparency if needed (RGBA)
-        # If the image is already L (grayscale) or RGB, saving as PNG works directly.
-        # Converting everything to RGBA might be safer but slightly less efficient.
         img_to_save = img
         if img.mode not in ['RGB', 'RGBA', 'L']:
             logger.debug(f"Converting image mode {img.mode} to RGBA for base64 encoding.")
             img_to_save = img.convert("RGBA")
-        elif img.mode == 'P': # Palette mode often needs conversion
+        elif img.mode == 'P':
             logger.debug(f"Converting image mode P to RGBA for base64 encoding.")
             img_to_save = img.convert("RGBA")
 
@@ -281,7 +282,6 @@ def pil_to_base64_url(img: Image.Image, format: str = "PNG") -> Optional[str]:
     except Exception as e:
         logger.error(f"Error converting PIL Image to base64 URL: {e}", exc_info=True)
         return None
-# --- ^ ^ ^ --- END OF NEW HELPER FUNCTION --- ^ ^ ^ ---
 
 # --- Sidebar ---
 # (Keeping this logic as it is, including button names and help text)
@@ -564,9 +564,8 @@ with col1:
         if DRAWABLE_CANVAS_AVAILABLE and st_canvas:
             st.caption("Draw a rectangle below to select a Region of Interest (ROI).")
 
-            # --- v v v --- CANVAS BACKGROUND IMAGE FIX --- v v v ---
+            # --- Canvas Background Image Fix Applied Here ---
             background_url = pil_to_base64_url(display_img) # Convert PIL Image to base64 URL
-            # --- ^ ^ ^ --- END OF FIX --- ^ ^ ^ ---
 
             if background_url: # Check if conversion was successful
                 MAX_CANVAS_WIDTH = 600
@@ -912,20 +911,24 @@ if current_action:
                 logger.info(f"Disease-specific analysis action for '{selected_disease}' completed.")
                 st.success(f"Analysis focused on '{selected_disease}' complete!", icon="✅")
 
+        # --- v v v --- THIS ACTION BLOCK IS UPDATED --- v v v ---
         elif current_action == "confidence":
+            # Check if there's anything to base assessment on (needs prior interaction history)
             if not current_history:
                 st.warning("Please ask at least one question before estimating the AI's self-assessment.", icon="📊")
             else:
                 st.toast("🧪 Estimating LLM self-assessment (Experimental)...", icon="⏳")
                 with st.spinner("AI assessing its previous responses..."):
                     # Calling the correctly imported and named function
-                    assessment_result = run_llm_self_assessment(
-                        image=img_for_llm,
+                    assessment_result = run_llm_self_assessment( # <<<--- CORRECTED FUNCTION CALL HERE
+                        image=img_for_llm, # Pass the correct image variable
                         history=current_history,
-                        roi=roi_coords
+                        roi=roi_coords # Pass the ROI state from the time of the last assessed interaction
                     )
+                # Store the result in the session state key the UI uses
                 st.session_state.confidence_score = assessment_result
                 st.success("LLM self-assessment estimation complete!", icon="✅")
+        # --- ^ ^ ^ --- END OF UPDATED ACTION BLOCK --- ^ ^ ^ ---
 
         elif current_action == "generate_report_data":
             # (Report generation logic remains the same)
