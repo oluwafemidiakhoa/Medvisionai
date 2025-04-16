@@ -6,8 +6,8 @@ Handles image uploading, display, ROI selection, interaction with AI models
 using an assumed agentic/structured approach for analysis and Q&A,
 translation, and report generation. Focuses on responsible AI demonstration.
 
-Includes monkey-patch fix for st_canvas background_image issue due to missing
-st_image.image_to_url in newer Streamlit versions.
+Includes fix for st_canvas background_image issue by manually converting
+PIL Images to base64 data URLs and uses the corrected llm_interactions import.
 """
 
 import streamlit as st
@@ -25,7 +25,7 @@ import io
 import os
 import uuid
 import logging
-import base64 # Needed for monkey patch
+import base64  # Needed for image conversion fix
 import hashlib
 import subprocess
 import sys
@@ -34,88 +34,7 @@ import copy
 import random
 import re
 
-# --- Pillow (PIL) - Essential (Import Early for Patch) ---
-try:
-    from PIL import Image, ImageDraw, UnidentifiedImageError
-    import PIL
-    PIL_VERSION = getattr(PIL, '__version__', 'Unknown')
-    PIL_AVAILABLE = True
-except ImportError:
-    # Log critical error early if possible, even before full logger setup
-    print("CRITICAL ERROR: Pillow (PIL) is not installed (`pip install Pillow`). Cannot continue.")
-    st.error("CRITICAL ERROR: Pillow (PIL) is not installed (`pip install Pillow`). Image processing disabled.")
-    PIL_AVAILABLE = False
-    st.stop() # Stop execution if PIL is missing
-
-# --- v v v --- MONKEY PATCH FOR st_image.image_to_url --- v v v ---
-# Apply this early, after core imports and PIL, before other components
-# that might rely on Streamlit's image handling are imported/used.
-try:
-    import streamlit.elements.image as st_image
-
-    if not hasattr(st_image, "image_to_url"):
-        print("Applying monkey-patch for missing 'streamlit.elements.image.image_to_url'...")
-
-        def image_to_url_monkey_patch(
-            image: Any,
-            width: int = -1,
-            clamp: bool = False,
-            channels: str = "RGB",
-            output_format: str = "auto",
-            image_id: str = "",
-        ) -> str:
-            """Simplified image_to_url implementation for compatibility."""
-            if isinstance(image, Image.Image):
-                try:
-                    fmt = output_format.upper()
-                    if fmt == "AUTO":
-                        fmt = image.format if image.format else "PNG" # Use original format if possible
-
-                    # Common web formats
-                    if fmt not in ["PNG", "JPEG", "GIF", "WEBP"]:
-                         # Fallback for formats not directly supported by browsers in data URLs
-                         print(f"Warning: Image format {fmt} may not be ideal for data URL. Converting to PNG.")
-                         fmt = "PNG"
-
-                    # Handle color channels/modes
-                    img_to_save = image
-                    if channels == "RGB" and image.mode != "RGB":
-                        # Convert only if necessary and not already suitable (like L)
-                        if image.mode not in ['L', 'RGB']:
-                             print(f"MonkeyPatch: Converting image mode {image.mode} to RGB.")
-                             img_to_save = image.convert("RGB")
-                    elif image.mode == 'P': # Palette needs conversion
-                        print(f"MonkeyPatch: Converting image mode P to RGBA.")
-                        img_to_save = image.convert("RGBA")
-                        fmt = "PNG" # PNG best for RGBA
-
-                    buffered = io.BytesIO()
-                    img_to_save.save(buffered, format=fmt)
-                    img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                    return f"data:image/{fmt.lower()};base64,{img_b64}"
-
-                except Exception as e:
-                    print(f"ERROR in monkey-patch image_to_url: {e}")
-                    return "" # Return empty string on error
-            else:
-                 # Handle other types if necessary, or return empty
-                 print(f"Warning: monkey-patch image_to_url received unsupported type: {type(image)}")
-                 return ""
-
-        # Apply the patch
-        st_image.image_to_url = image_to_url_monkey_patch
-        print("Monkey-patch applied successfully.")
-    else:
-        print("'streamlit.elements.image.image_to_url' already exists. No patch needed.")
-
-except ImportError:
-    print("Could not import streamlit.elements.image. Skipping monkey-patch.")
-except Exception as e:
-    print(f"An error occurred during monkey-patch setup: {e}")
-# --- ^ ^ ^ --- END OF MONKEY PATCH --- ^ ^ ^ ---
-
-
-# --- Ensure deep-translator is installed ---
+# --- Ensure deep-translator is installed at runtime if not present ---
 # (Keeping this logic as it is)
 try:
     from deep_translator import GoogleTranslator
@@ -143,11 +62,8 @@ logger = logging.getLogger(__name__)
 logger.info("--- RadVision AI Application Start ---")
 logger.info(f"Streamlit Version: {st.__version__}")
 logger.info(f"Logging Level: {LOG_LEVEL}")
-# Log PIL version here now that it's imported
-logger.info(f"Pillow (PIL) Version: {PIL_VERSION}")
 
-
-# --- Dependency Checks & Imports (Continued) ---
+# --- Dependency Checks & Imports ---
 
 # Streamlit Drawable Canvas
 try:
@@ -161,6 +77,19 @@ except ImportError:
     DRAWABLE_CANVAS_AVAILABLE = False
     st_canvas = None
 
+# Pillow (PIL) - Essential
+try:
+    from PIL import Image, ImageDraw, UnidentifiedImageError
+    import PIL
+    PIL_VERSION = getattr(PIL, '__version__', 'Unknown')
+    logger.info(f"Pillow (PIL) Version: {PIL_VERSION}")
+    PIL_AVAILABLE = True
+except ImportError:
+    st.error("CRITICAL ERROR: Pillow (PIL) is not installed (`pip install Pillow`). Image processing disabled.")
+    logger.critical("Pillow (PIL) not found. App functionality severely impaired.")
+    PIL_AVAILABLE = False
+    st.stop()
+
 # Pydicom & related libraries
 # (Keeping this logic as it is)
 try:
@@ -169,17 +98,23 @@ try:
     PYDICOM_VERSION = getattr(pydicom, '__version__', 'Unknown')
     logger.info(f"Pydicom Version: {PYDICOM_VERSION}")
     PYDICOM_AVAILABLE = True
-    try: import pylibjpeg; logger.info("pylibjpeg found.")
-    except ImportError: logger.info("pylibjpeg not found (optional).")
-    try: import gdcm; logger.info("python-gdcm found.")
-    except ImportError: logger.info("python-gdcm not found (optional).")
+    try:
+        import pylibjpeg
+        logger.info("pylibjpeg found.")
+    except ImportError:
+        logger.info("pylibjpeg not found (optional).")
+    try:
+        import gdcm
+        logger.info("python-gdcm found.")
+    except ImportError:
+        logger.info("python-gdcm not found (optional).")
 except ImportError:
     PYDICOM_VERSION = 'Not Installed'
     logger.warning("pydicom not found. DICOM functionality will be disabled.")
     PYDICOM_AVAILABLE = False
 
 # --- Custom Backend Modules ---
-# (Imports remain the same, using corrected llm_interactions import)
+# (Keeping this logic as it is, including the corrected import from llm_interactions)
 try:
     from dicom_utils import (
         parse_dicom, extract_dicom_metadata, dicom_to_image, get_default_wl
@@ -192,12 +127,15 @@ except ImportError as e:
         st.warning("DICOM utilities module missing. DICOM processing limited.")
     DICOM_UTILS_AVAILABLE = False
 
+# --- v v v --- THIS IMPORT BLOCK IS UPDATED --- v v v ---
 try:
+    # **ASSUMPTION:** This module uses responsible, agentic prompts (like examples discussed)
+    # for analysis functions, ensuring cautious language, structure, and limitation reporting.
     from llm_interactions import (
         run_initial_analysis,
         run_multimodal_qa,
         run_disease_analysis,
-        run_llm_self_assessment # Using the corrected name
+        run_llm_self_assessment  # <<<--- CORRECTED FUNCTION NAME HERE
     )
     LLM_INTERACTIONS_AVAILABLE = True
     logger.info("llm_interactions imported successfully.")
@@ -205,7 +143,8 @@ except ImportError as e:
     st.error(f"Core AI module (llm_interactions) failed to import: {e}. Analysis functions disabled.")
     logger.critical(f"Failed to import llm_interactions: {e}", exc_info=True)
     LLM_INTERACTIONS_AVAILABLE = False
-    st.stop()
+    st.stop()  # Core functionality missing, stop the app
+# --- ^ ^ ^ --- END OF UPDATED IMPORT BLOCK --- ^ ^ ^ ---
 
 try:
     from report_utils import generate_pdf_report_bytes
@@ -299,7 +238,7 @@ DEFAULT_STATE = {
     "dicom_dataset": None, "dicom_metadata": {}, "processed_image": None,
     "display_image": None, "session_id": None, "history": [],
     "initial_analysis": "", "qa_answer": "", "disease_analysis": "",
-    "confidence_score": "",
+    "confidence_score": "", # Keeping state key, UI label/purpose changes
     "last_action": None, "pdf_report_bytes": None, "canvas_drawing": None,
     "roi_coords": None, "current_display_wc": None, "current_display_ww": None,
     "clear_roi_feedback": False, "demo_loaded": False,
@@ -329,10 +268,44 @@ def format_translation(translated_text: Optional[str]) -> str:
         logger.error(f"Error formatting translation: {e}", exc_info=True)
         return str(translated_text)
 
-# --- REMOVED pil_to_base64_url HELPER FUNCTION ---
+# --- Helper Function for Canvas Fix ---
+def pil_to_base64_url(img: Image.Image, format: str = "PNG") -> Optional[str]:
+    """Converts PIL Image to base64 data URL for embedding."""
+    try:
+        buffered = io.BytesIO()
+        img_to_save = img
+        if img.mode not in ['RGB', 'RGBA', 'L']:
+            logger.debug(f"Converting image mode {img.mode} to RGBA for base64 encoding.")
+            img_to_save = img.convert("RGBA")
+        elif img.mode == 'P':
+            logger.debug(f"Converting image mode P to RGBA for base64 encoding.")
+            img_to_save = img.convert("RGBA")
+
+        img_to_save.save(buffered, format=format)
+        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        logger.debug(f"Successfully converted PIL Image to base64 data URL (Format: {format}).")
+        return f"data:image/{format.lower()};base64,{img_str}"
+    except Exception as e:
+        logger.error(f"Error converting PIL Image to base64 URL: {e}", exc_info=True)
+        return None
+
+# --- Patch: Add image_to_url to streamlit.elements.image if missing ---
+try:
+    import streamlit.elements.image as st_image
+    # Define a wrapper that accepts extra arguments
+    def patched_image_to_url(*args, **kwargs):
+        if args:
+            img = args[0]
+        else:
+            raise ValueError("No image provided")
+        return pil_to_base64_url(img)
+    st_image.image_to_url = patched_image_to_url
+    logger.info("Patched st.elements.image.image_to_url using patched_image_to_url.")
+except Exception as e:
+    logger.error(f"Failed to patch st_image.image_to_url: {e}")
 
 # --- Sidebar ---
-# (Keeping this logic as it is)
+# (Keeping this logic as it is, including button names and help text)
 with st.sidebar:
     st.header("⚕️ RadVision Controls")
     st.markdown("---")
@@ -361,9 +334,20 @@ with st.sidebar:
                             help="Load a sample chest X-ray image and analysis.")
     if demo_mode and not st.session_state.demo_loaded:
         logger.info("Demo Mode activated.")
+        # --- [Placeholder for Demo Loading Logic - Needs implementation] ---
         st.warning("Demo mode selected, but loading logic needs implementation.")
+        # Example:
+        # try:
+        #     # ... load file, process, set state ...
+        #     st.session_state.demo_loaded = True
+        #     st.rerun()
+        # except Exception as e:
+        #     st.error(f"Failed to load demo: {e}")
+        #     st.session_state.demo_loaded = False
+        # --- End Placeholder ---
     elif not demo_mode and st.session_state.demo_loaded:
          logger.info("Demo Mode deactivated.")
+         # Add state reset logic if needed when demo is turned off
          st.session_state.demo_loaded = False
 
     if DRAWABLE_CANVAS_AVAILABLE:
@@ -451,7 +435,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.header("📊 Reporting & Assessment")
-    can_estimate = bool(st.session_state.history)
+    can_estimate = bool(st.session_state.history)  # Can only assess if there's history
     if st.button("🧪 Estimate LLM Self-Assessment (Experimental)", key="confidence_btn",
                  disabled=not can_estimate or action_disabled,
                  help="EXPERIMENTAL: Ask the LLM to assess its last Q&A response. Not a clinical confidence score."):
@@ -573,16 +557,6 @@ if uploaded_file is not None and PIL_AVAILABLE:
 st.markdown("---")
 # Main Disclaimer moved near top
 
-st.warning(
-    """
-    **🔴 IMPORTANT: For Research & Educational Use Only 🔴**
-    *   This tool **demonstrates** AI capabilities and is **NOT** a substitute for professional medical evaluation, diagnosis, or treatment advice.
-    *   AI analysis is based on patterns and **may be inaccurate or incomplete.** It lacks full clinical context.
-    *   **ALWAYS consult qualified healthcare professionals** for any medical concerns or decisions.
-    *   **PRIVACY:** Do **NOT** upload identifiable patient information (PHI) unless you fully comply with all privacy regulations (e.g., HIPAA, GDPR) and have necessary consents.
-    """,
-    icon="⚠️"
-)
 st.title("⚕️ RadVision AI Advanced: AI-Assisted Image Analysis")
 with st.expander("User Guide & Detailed Information", expanded=False):
     st.markdown("""
@@ -610,65 +584,72 @@ with col1:
         if DRAWABLE_CANVAS_AVAILABLE and st_canvas:
             st.caption("Draw a rectangle below to select a Region of Interest (ROI).")
 
-            # --- Reverted Canvas Call - Using Monkey Patch ---
-            MAX_CANVAS_WIDTH = 600
-            MAX_CANVAS_HEIGHT = 550
-            img_w, img_h = display_img.size
+            # --- Canvas Background Image Fix Applied Here ---
+            background_url = pil_to_base64_url(display_img)  # Convert PIL Image to base64 URL
 
-            if img_w <= 0 or img_h <= 0:
-                st.warning("Image has invalid dimensions (<= 0). Cannot display canvas.")
+            if background_url:  # Check if conversion was successful
+                MAX_CANVAS_WIDTH = 600
+                MAX_CANVAS_HEIGHT = 550
+                img_w, img_h = display_img.size
+
+                if img_w <= 0 or img_h <= 0:
+                    st.warning("Image has invalid dimensions (<= 0). Cannot display canvas.")
+                else:
+                    aspect_ratio = img_w / img_h
+                    canvas_width = min(img_w, MAX_CANVAS_WIDTH)
+                    canvas_height = int(canvas_width / aspect_ratio)
+                    if canvas_height > MAX_CANVAS_HEIGHT:
+                        canvas_height = MAX_CANVAS_HEIGHT
+                        canvas_width = int(canvas_height * aspect_ratio)
+                    canvas_width = max(canvas_width, 150)
+                    canvas_height = max(canvas_height, 150)
+
+                    # Updated: Pass the PIL Image directly instead of the base64 URL string.
+                    canvas_result = st_canvas(
+                        fill_color="rgba(255, 165, 0, 0.2)",
+                        stroke_width=2,
+                        stroke_color="rgba(239, 83, 80, 0.8)",
+                        background_image=display_img,  # Use the PIL image directly
+                        update_streamlit=True,
+                        height=canvas_height,
+                        width=canvas_width,
+                        drawing_mode="rect",
+                        initial_drawing=st.session_state.get("canvas_drawing", None),
+                        key="drawable_canvas"
+                    )
+
+                    # ROI processing logic (remains the same)
+                    if canvas_result.json_data and canvas_result.json_data.get("objects"):
+                        last_object = canvas_result.json_data["objects"][-1]
+                        if last_object["type"] == "rect":
+                            canvas_left = int(last_object["left"])
+                            canvas_top = int(last_object["top"])
+                            canvas_width_scaled = int(last_object["width"] * last_object.get("scaleX", 1))
+                            canvas_height_scaled = int(last_object["height"] * last_object.get("scaleY", 1))
+                            scale_x = img_w / canvas_width
+                            scale_y = img_h / canvas_height
+                            original_left = int(canvas_left * scale_x)
+                            original_top = int(canvas_top * scale_y)
+                            original_width = int(canvas_width_scaled * scale_x)
+                            original_height = int(canvas_height_scaled * scale_y)
+                            original_left = max(0, original_left)
+                            original_top = max(0, original_top)
+                            original_width = min(img_w - original_left, original_width)
+                            original_height = min(img_h - original_top, original_height)
+                            new_roi = {
+                                "left": original_left, "top": original_top,
+                                "width": original_width, "height": original_height
+                            }
+                            if st.session_state.roi_coords != new_roi and original_width > 0 and original_height > 0:
+                                st.session_state.roi_coords = new_roi
+                                st.session_state.canvas_drawing = canvas_result.json_data
+                                logger.info(f"New ROI selected (original coords): {new_roi}")
+                                st.toast(f"ROI set: ({original_left},{original_top}), {original_width}x{original_height}", icon="🎯")
             else:
-                aspect_ratio = img_w / img_h
-                canvas_width = min(img_w, MAX_CANVAS_WIDTH)
-                canvas_height = int(canvas_width / aspect_ratio)
-                if canvas_height > MAX_CANVAS_HEIGHT:
-                    canvas_height = MAX_CANVAS_HEIGHT
-                    canvas_width = int(canvas_height * aspect_ratio)
-                canvas_width = max(canvas_width, 150)
-                canvas_height = max(canvas_height, 150)
+                st.error("Could not convert image for canvas background.")
+                st.image(display_img, caption="Image Preview (Canvas background error)", use_container_width=True)
 
-                canvas_result = st_canvas(
-                    fill_color="rgba(255, 165, 0, 0.2)",
-                    stroke_width=2,
-                    stroke_color="rgba(239, 83, 80, 0.8)",
-                    background_image=display_img, # Pass PIL Image directly again
-                    update_streamlit=True,
-                    height=canvas_height,
-                    width=canvas_width,
-                    drawing_mode="rect",
-                    initial_drawing=st.session_state.get("canvas_drawing", None),
-                    key="drawable_canvas"
-                )
-
-                # ROI processing logic (remains the same)
-                if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                    last_object = canvas_result.json_data["objects"][-1]
-                    if last_object["type"] == "rect":
-                        canvas_left = int(last_object["left"])
-                        canvas_top = int(last_object["top"])
-                        canvas_width_scaled = int(last_object["width"] * last_object.get("scaleX", 1))
-                        canvas_height_scaled = int(last_object["height"] * last_object.get("scaleY", 1))
-                        scale_x = img_w / canvas_width
-                        scale_y = img_h / canvas_height
-                        original_left = int(canvas_left * scale_x)
-                        original_top = int(canvas_top * scale_y)
-                        original_width = int(canvas_width_scaled * scale_x)
-                        original_height = int(canvas_height_scaled * scale_y)
-                        original_left = max(0, original_left)
-                        original_top = max(0, original_top)
-                        original_width = min(img_w - original_left, original_width)
-                        original_height = min(img_h - original_top, original_height)
-                        new_roi = {
-                            "left": original_left, "top": original_top,
-                            "width": original_width, "height": original_height
-                        }
-                        if st.session_state.roi_coords != new_roi and original_width > 0 and original_height > 0:
-                            st.session_state.roi_coords = new_roi
-                            st.session_state.canvas_drawing = canvas_result.json_data
-                            logger.info(f"New ROI selected (original coords): {new_roi}")
-                            st.toast(f"ROI set: ({original_left},{original_top}), {original_width}x{original_height}", icon="🎯")
-
-        else: # Fallback if canvas is not available
+        else:  # Fallback if canvas is not available
             st.image(display_img, caption="Image Preview (ROI drawing disabled)", use_container_width=True)
 
         # Display current ROI coordinates (remains the same)
@@ -951,20 +932,24 @@ if current_action:
                 logger.info(f"Disease-specific analysis action for '{selected_disease}' completed.")
                 st.success(f"Analysis focused on '{selected_disease}' complete!", icon="✅")
 
+        # --- v v v --- THIS ACTION BLOCK IS UPDATED --- v v v ---
         elif current_action == "confidence":
+            # Check if there's anything to base assessment on (needs prior interaction history)
             if not current_history:
                 st.warning("Please ask at least one question before estimating the AI's self-assessment.", icon="📊")
             else:
                 st.toast("🧪 Estimating LLM self-assessment (Experimental)...", icon="⏳")
                 with st.spinner("AI assessing its previous responses..."):
                     # Calling the correctly imported and named function
-                    assessment_result = run_llm_self_assessment( # Using corrected function name
-                        image=img_for_llm,
+                    assessment_result = run_llm_self_assessment(  # <<<--- CORRECTED FUNCTION CALL HERE
+                        image=img_for_llm,  # Pass the correct image variable
                         history=current_history,
-                        roi=roi_coords
+                        roi=roi_coords  # Pass the ROI state from the time of the last assessed interaction
                     )
+                # Store the result in the session state key the UI uses
                 st.session_state.confidence_score = assessment_result
                 st.success("LLM self-assessment estimation complete!", icon="✅")
+        # --- ^ ^ ^ --- END OF UPDATED ACTION BLOCK --- ^ ^ ^ ---
 
         elif current_action == "generate_report_data":
             # (Report generation logic remains the same)
