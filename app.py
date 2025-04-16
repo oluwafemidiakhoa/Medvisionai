@@ -584,11 +584,12 @@ with col1:
                     canvas_width = max(canvas_width, 150)
                     canvas_height = max(canvas_height, 150)
 
+                    # Updated: Pass the PIL Image directly instead of the base64 URL string.
                     canvas_result = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.2)",
                         stroke_width=2,
                         stroke_color="rgba(239, 83, 80, 0.8)",
-                        background_image=background_url, # Use the base64 URL string
+                        background_image=display_img,  # Use the PIL image directly
                         update_streamlit=True,
                         height=canvas_height,
                         width=canvas_width,
