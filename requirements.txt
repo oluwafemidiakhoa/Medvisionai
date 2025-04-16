@@ -6,7 +6,7 @@
 streamlit==1.44.1  # Pin Streamlit version (from logs)
 
 # UI Components
-streamlit-drawable-canvas==0.9.3 # Pin known version (update if needed)
+streamlit-drawable-canvas # Pin known version (update if needed)
 
 # Image Processing
 Pillow==11.1.0      # Pin PIL version (from logs)
