@@ -9,9 +9,19 @@ import streamlit as st
 import io, os, uuid, logging, base64, hashlib, subprocess, sys, copy, random, re
 from typing import Any, Dict, Optional, Tuple, List, Union
 
-# ====================================================================
+# =============================================================================
+# SET PAGE CONFIGURATION AS THE VERY FIRST STREAMLIT COMMAND
+# =============================================================================
+st.set_page_config(
+    page_title="RadVision AI Advanced",
+    layout="wide",
+    page_icon="⚕️",
+    initial_sidebar_state="expanded"
+)
+
+# =============================================================================
 # CUSTOM CSS FOR ADVANCED UI/UX DESIGN
-# ====================================================================
+# =============================================================================
 CUSTOM_CSS = """
 <style>
 /* Global Body and Font Settings */
@@ -80,22 +90,11 @@ header h1 {
 }
 </style>
 """
-
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# ====================================================================
-# PAGE CONFIGURATION
-# ====================================================================
-st.set_page_config(
-    page_title="RadVision AI Advanced",
-    layout="wide",
-    page_icon="⚕️",
-    initial_sidebar_state="expanded"
-)
-
-# ====================================================================
+# =============================================================================
 # LOGGING SETUP
-# ====================================================================
+# =============================================================================
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG").upper()
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -107,9 +106,9 @@ logger.info("RadVision AI Application Starting...")
 logger.info(f"Streamlit Version: {st.__version__}")
 logger.info(f"Logging Level: {LOG_LEVEL}")
 
-# ====================================================================
+# =============================================================================
 # PILLLOW (PIL) IMPORT AND CHECK
-# ====================================================================
+# =============================================================================
 try:
     from PIL import Image, ImageDraw, UnidentifiedImageError, ImageOps
     import PIL
@@ -122,9 +121,9 @@ except ImportError:
     PIL_AVAILABLE = False
     st.stop()
 
-# ====================================================================
-# MONKEY PATCH (if necessary)
-# ====================================================================
+# =============================================================================
+# MONKEY PATCH FOR streamlit.elements.image (if necessary)
+# =============================================================================
 try:
     import streamlit.elements.image as st_image
     if not hasattr(st_image, "image_to_url"):
@@ -168,15 +167,15 @@ try:
         st_image.image_to_url = image_to_url_monkey_patch
         logger.info("Monkey-patch applied.")
     else:
-        logger.info("Monkey-patch not needed. 'image_to_url' exists.")
+        logger.info("Monkey-patch not needed; 'image_to_url' exists.")
 except ImportError:
     logger.warning("streamlit.elements.image not found. Skipping monkey-patch.")
 except Exception as e:
     logger.error(f"Error during monkey-patch setup: {e}", exc_info=True)
 
-# ====================================================================
+# =============================================================================
 # DEPENDENCY IMPORTS & MODULE CHECKS
-# ====================================================================
+# =============================================================================
 # Deep Translator
 try:
     from deep_translator import GoogleTranslator
@@ -301,9 +300,9 @@ if not TRANSLATION_AVAILABLE:
     LANGUAGE_CODES = {"English": "en"}
     AUTO_DETECT_INDICATOR = "Auto-Detect"
 
-# ====================================================================
+# =============================================================================
 # SESSION STATE DEFAULTS
-# ====================================================================
+# =============================================================================
 DEFAULT_STATE = {
     "uploaded_file_info": None,
     "raw_image_bytes": None,
@@ -340,9 +339,9 @@ if not isinstance(st.session_state.get("history"), list):
     st.session_state.history = []
 logger.debug(f"Session state verified for: {st.session_state.session_id}")
 
-# ====================================================================
-# UTILITY FUNCTION FOR FORMATTING TRANSLATION
-# ====================================================================
+# =============================================================================
+# UTILITY FUNCTION: FORMAT TRANSLATION TEXT
+# =============================================================================
 def format_translation(translated_text: Optional[str]) -> str:
     if translated_text is None:
         return "Translation not available or failed."
@@ -354,14 +353,14 @@ def format_translation(translated_text: Optional[str]) -> str:
         logger.error(f"Error formatting translation: {e}", exc_info=True)
         return str(translated_text)
 
-# ====================================================================
-# ADVANCED SIDEBAR NAVIGATION
-# ====================================================================
+# =============================================================================
+# ADVANCED SIDEBAR NAVIGATION & CONTEXTUAL CONTROLS
+# =============================================================================
 with st.sidebar:
     st.image(os.path.join("assets", "radvisionai-hero.jpeg"), width=180)
     st.markdown("<h2 style='text-align: center;'>RadVision AI</h2>", unsafe_allow_html=True)
     
-    # Navigation Radio for Main Sections
+    # Navigation between sections
     nav_option = st.radio("Navigation", options=[
         "Image Upload & Settings", 
         "AI Analysis Actions",
@@ -369,8 +368,7 @@ with st.sidebar:
     ], index=0, help="Select the section you wish to view")
     
     st.markdown("---")
-    
-    # Common Sidebar Hints and Tips (dynamically updated)
+    # Contextual tip
     TIPS = [
         "Use Demo Mode for a quick sample chest X-ray analysis.",
         "Draw a ROI on the image to focus the AI analysis.",
@@ -410,7 +408,7 @@ with st.sidebar:
                 st.success("ROI cleared!", icon="✅")
                 st.session_state.clear_roi_feedback = False
 
-        # DICOM W/L controls when applicable
+        # DICOM Window/Level controls if applicable
         if st.session_state.is_dicom and DICOM_UTILS_AVAILABLE and UI_COMPONENTS_AVAILABLE and st.session_state.display_image:
             st.markdown("---")
             st.subheader("Adjust DICOM Window/Level")
@@ -512,16 +510,16 @@ with st.sidebar:
                                 st.session_state.translation_result = t_out
                                 st.success("Translation complete!", icon="🎉")
                             else:
-                                st.error("Translation returned empty result.", icon="❓")
+                                st.error("Empty translation result.", icon="❓")
                                 st.session_state.translation_error = "Empty result."
                         except Exception as e:
-                            st.error(f"Translation failed: {e}", icon="❌")
+                            st.error(f"Translation error: {e}", icon="❌")
                             st.session_state.translation_error = str(e)
             if st.session_state.get("translation_result"):
                 fmt_res = format_translation(st.session_state.translation_result)
                 st.text_area("Translation:", value=fmt_res, height=150, key="ts_out")
             elif st.session_state.get("translation_error"):
-                st.info(f"Translation Error: {st.session_state.translation_error}", icon="ℹ️")
+                st.info(f"Error: {st.session_state.translation_error}", icon="ℹ️")
         st.markdown("---")
         st.subheader("Generate PDF Report")
         report_generation_disabled = (not LLM_INTERACTIONS_AVAILABLE or not isinstance(st.session_state.get("processed_image"), Image.Image)) or not REPORT_UTILS_AVAILABLE
@@ -538,9 +536,9 @@ with st.sidebar:
                                key="download_pdf_button",
                                help="Download the generated PDF report.")
 
-# ====================================================================
+# =============================================================================
 # FILE UPLOAD & IMAGE PROCESSING LOGIC
-# ====================================================================
+# =============================================================================
 if nav_option == "Image Upload & Settings":
     if 'uploaded_file' not in locals():
         uploaded_file = None
@@ -660,9 +658,9 @@ if nav_option == "Image Upload & Settings":
                     st.session_state.processed_image = None
                     st.session_state.is_dicom = False
 
-# ====================================================================
+# =============================================================================
 # MAIN PAGE CONTENT
-# ====================================================================
+# =============================================================================
 # Header Section
 st.markdown("<header><h1>RadVision AI Advanced: AI-Assisted Image Analysis</h1></header>", unsafe_allow_html=True)
 st.markdown("<div class='container-fluid'>", unsafe_allow_html=True)
@@ -791,12 +789,11 @@ with col2:
                     st.text_area("Translation:", value=fmt_res, height=150, key="ts_out")
                 elif st.session_state.get("translation_error"):
                     st.info(f"Error: {st.session_state.translation_error}", icon="ℹ️")
-
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ====================================================================
+# =============================================================================
 # BUTTON ACTION HANDLERS (CENTRAL LOGIC)
-# ====================================================================
+# =============================================================================
 current_action = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Processing action '{current_action}' for session {st.session_state.session_id}")
@@ -933,9 +930,9 @@ if current_action:
         logger.debug(f"Action '{current_action}' complete.")
         st.experimental_rerun()
 
-# ====================================================================
+# =============================================================================
 # FOOTER SECTION
-# ====================================================================
+# =============================================================================
 st.markdown("<div class='footer'>⚕️ RadVision AI Advanced | Session ID: " +
             f"{st.session_state.get('session_id', 'N/A')}" +
             " | © 2025 RadVision Inc.</div>", unsafe_allow_html=True)
