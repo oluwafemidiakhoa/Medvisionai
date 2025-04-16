@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 app.py - Main Streamlit application for RadVision AI Advanced.
-
-Includes debugging steps for image display issue and monkey-patch fix.
-Ensures logger is defined before monkey-patch attempts to use it.
-Corrected try-except block in translation logic.
-Corrected try-except structure in DICOM W/L slider logic.
 """
 
 import streamlit as st
