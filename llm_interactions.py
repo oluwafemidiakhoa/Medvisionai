@@ -299,8 +299,6 @@ def run_disease_analysis(image: Image.Image, disease: str, roi: Optional[Dict] =
     return response_text if success else f"**{action_name} Failed ({disease}):** {response_text or 'Unknown API error.'}"
 
 
-# Replace the existing run_llm_self_assessment function with this corrected version:
-
 def run_llm_self_assessment(
     image: Image.Image, # Image associated with the interaction being assessed
     history: List[Tuple[str, str, Any]],
@@ -318,7 +316,7 @@ def run_llm_self_assessment(
     Returns:
         A string containing the AI's self-assessment based on the defined factors,
         or a string prefixed with "LLM Self-Assessment Failed: ".
-    """ # <<< CORRECTED: Added closing triple quotes here
+    """ # <<< ENSURED THIS CLOSING QUOTE IS PRESENT
     action_name = "LLM Self-Assessment (Experimental)"
     logger.info(f"Requesting {action_name}. History length: {len(history)}. ROI used previously: {bool(roi)}")
 
