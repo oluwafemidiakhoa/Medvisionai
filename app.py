@@ -119,11 +119,15 @@ except ImportError as e:
         st.warning("DICOM utilities module missing. DICOM processing limited.")
     DICOM_UTILS_AVAILABLE = False
 
+# --- v v v --- THIS IMPORT BLOCK IS UPDATED --- v v v ---
 try:
     # **ASSUMPTION:** This module uses responsible, agentic prompts (like examples discussed)
     # for analysis functions, ensuring cautious language, structure, and limitation reporting.
     from llm_interactions import (
-        run_initial_analysis, run_multimodal_qa, run_disease_analysis, estimate_ai_confidence
+        run_initial_analysis,
+        run_multimodal_qa,
+        run_disease_analysis,
+        run_llm_self_assessment  # <<<--- UPDATED FUNCTION NAME HERE
     )
     LLM_INTERACTIONS_AVAILABLE = True
     logger.info("llm_interactions imported successfully.")
@@ -132,6 +136,7 @@ except ImportError as e:
     logger.critical(f"Failed to import llm_interactions: {e}", exc_info=True)
     LLM_INTERACTIONS_AVAILABLE = False
     st.stop() # Core functionality missing, stop the app
+# --- ^ ^ ^ --- END OF UPDATED IMPORT BLOCK --- ^ ^ ^ ---
 
 try:
     # **ASSUMPTION:** This module includes disclaimers in the generated PDF.
@@ -423,11 +428,11 @@ with st.sidebar:
 
     # Experimental Confidence Score (Renamed and Warned)
     can_estimate = bool(
-        st.session_state.history or st.session_state.initial_analysis or st.session_state.disease_analysis
+        st.session_state.history # Only base it on history to assess the last answer
     )
     if st.button("🧪 Estimate LLM Self-Assessment (Experimental)", key="confidence_btn",
                  disabled=not can_estimate or action_disabled,
-                 help="EXPERIMENTAL: Ask the LLM to assess its own response based on input. Not a clinical confidence score."):
+                 help="EXPERIMENTAL: Ask the LLM to assess its last Q&A response. Not a clinical confidence score."):
         st.session_state.last_action = "confidence"
         st.rerun()
 
@@ -466,10 +471,8 @@ if uploaded_file is not None and PIL_AVAILABLE: # Ensure PIL is available
         st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
 
         # --- Reset application state for the new file ---
-        # Preserve only essential session info
         keys_to_preserve = {"session_id"} # Keep session ID across uploads
         st.session_state.session_id = st.session_state.get("session_id") or str(uuid.uuid4())[:8] # Ensure ID exists
-        # Reset all other keys to defaults
         for key, value in DEFAULT_STATE.items():
             if key not in keys_to_preserve:
                 st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
@@ -479,7 +482,6 @@ if uploaded_file is not None and PIL_AVAILABLE: # Ensure PIL is available
 
         st.session_state.raw_image_bytes = uploaded_file.getvalue()
         file_ext = os.path.splitext(uploaded_file.name)[1].lower()
-        # Determine if DICOM based on type/extension and availability of libraries
         st.session_state.is_dicom = (
             PYDICOM_AVAILABLE and DICOM_UTILS_AVAILABLE and
             ("dicom" in uploaded_file.type.lower() or file_ext in (".dcm", ".dicom"))
@@ -487,7 +489,7 @@ if uploaded_file is not None and PIL_AVAILABLE: # Ensure PIL is available
 
         with st.spinner("🔬 Analyzing and preparing image..."):
             temp_display_img = None
-            temp_processed_img = None # Image potentially pre-processed for LLM
+            temp_processed_img = None
             processing_success = False
 
             if st.session_state.is_dicom:
@@ -500,10 +502,8 @@ if uploaded_file is not None and PIL_AVAILABLE: # Ensure PIL is available
                         default_wc, default_ww = get_default_wl(dicom_dataset)
                         st.session_state.current_display_wc = default_wc
                         st.session_state.current_display_ww = default_ww
-                        # Get image for display (with default W/L)
                         temp_display_img = dicom_to_image(dicom_dataset, wc=default_wc, ww=default_ww)
-                        # Get image potentially processed for AI (e.g., normalized, no W/L)
-                        temp_processed_img = dicom_to_image(dicom_dataset, wc=None, ww=None, normalize=True) # Adjust normalization as needed for backend
+                        temp_processed_img = dicom_to_image(dicom_dataset, wc=None, ww=None, normalize=True)
                         if isinstance(temp_display_img, Image.Image) and isinstance(temp_processed_img, Image.Image):
                             processing_success = True
                             logger.info("DICOM parsed and converted successfully.")
@@ -516,20 +516,18 @@ if uploaded_file is not None and PIL_AVAILABLE: # Ensure PIL is available
                 except pydicom.errors.InvalidDicomError:
                     st.error("Invalid DICOM file format detected. Please upload a valid DICOM (.dcm) file.")
                     logger.error("InvalidDicomError during parsing.")
-                    st.session_state.is_dicom = False # Treat as non-DICOM if parsing fails
+                    st.session_state.is_dicom = False
                 except Exception as e:
                     st.error(f"An unexpected error occurred processing DICOM: {e}")
                     logger.error(f"DICOM processing error: {e}", exc_info=True)
-                    st.session_state.is_dicom = False # Treat as non-DICOM on error
+                    st.session_state.is_dicom = False
 
-            # Fallback or primary path for standard image formats
             if not st.session_state.is_dicom and not processing_success:
                 logger.info("Processing as standard image (JPG/PNG)...")
                 try:
                     raw_img = Image.open(io.BytesIO(st.session_state.raw_image_bytes))
-                    # Ensure RGB format for consistency with AI models and display
                     processed_img = raw_img.convert("RGB")
-                    temp_display_img = processed_img.copy() # Use the same image for display and processing
+                    temp_display_img = processed_img.copy()
                     temp_processed_img = processed_img.copy()
                     processing_success = True
                     logger.info("Standard image loaded and converted to RGB successfully.")
@@ -540,28 +538,51 @@ if uploaded_file is not None and PIL_AVAILABLE: # Ensure PIL is available
                     st.error(f"Error processing standard image: {e}")
                     logger.error(f"Standard image processing error: {e}", exc_info=True)
 
-            # Final state update after processing attempt
             if processing_success and isinstance(temp_display_img, Image.Image) and isinstance(temp_processed_img, Image.Image):
-                # Ensure display image is RGB before storing
                 st.session_state.display_image = temp_display_img.convert('RGB') if temp_display_img.mode != 'RGB' else temp_display_img
-                st.session_state.processed_image = temp_processed_img # Store potentially different processed image
+                st.session_state.processed_image = temp_processed_img
                 st.success(f"✅ Image '{uploaded_file.name}' loaded successfully!")
                 logger.info(f"Image processing complete for: {uploaded_file.name}")
-                st.rerun() # Rerun to update the UI with the new image and state
+                st.rerun()
             else:
-                # Clear state if processing failed entirely
                 st.error("Image loading failed. Please check the file format or try another image.")
                 logger.error(f"Image processing failed for file: {uploaded_file.name}")
-                st.session_state.uploaded_file_info = None # Clear file info so user can retry
+                st.session_state.uploaded_file_info = None
                 st.session_state.display_image = None
                 st.session_state.processed_image = None
                 st.session_state.is_dicom = False
-                # No rerun here, let the error message stay
 
 # --- Main Page Content ---
 
 st.markdown("---")
 # Moved Title and Disclaimer to the top after imports/config
+
+# --- Main Disclaimer (Moved Up) ---
+st.warning(
+    """
+    **🔴 IMPORTANT: For Research & Educational Use Only 🔴**
+    *   This tool **demonstrates** AI capabilities and is **NOT** a substitute for professional medical evaluation, diagnosis, or treatment advice.
+    *   AI analysis is based on patterns and **may be inaccurate or incomplete.** It lacks full clinical context.
+    *   **ALWAYS consult qualified healthcare professionals** for any medical concerns or decisions.
+    *   **PRIVACY:** Do **NOT** upload identifiable patient information (PHI) unless you fully comply with all privacy regulations (e.g., HIPAA, GDPR) and have necessary consents.
+    """,
+    icon="⚠️"
+)
+st.title("⚕️ RadVision AI Advanced: AI-Assisted Image Analysis") # Title after disclaimer
+with st.expander("User Guide & Detailed Information", expanded=False):
+    # Keep the original workflow description here
+    st.markdown("""
+    **Workflow:**
+    1. **Upload Image**: Use sidebar to upload DICOM, JPG, or PNG (ensure de-identification!).
+    2. **(DICOM)** Adjust Window/Level sliders in sidebar if needed.
+    3. **ROI (Optional)**: Draw a rectangle on the image viewer below to focus the AI's attention. Clear with sidebar button.
+    4. **AI Analysis**: Use sidebar buttons ('Structured Initial Analysis', 'Ask Question', 'Analyze for Condition'). Results appear in the right panel.
+    5. **Translation**: Use the 'Translation' tab to translate AI-generated text.
+    6. **Self-Assessment**: Use the 'LLM Self-Assessment' tab (and sidebar button) for an *experimental* AI reflection on its last answer.
+    7. **Generate Report**: Use sidebar button to compile session data into a PDF, then download.
+    """)
+
+st.markdown("---")
 
 col1, col2 = st.columns([2, 3], gap="large") # Adjust column ratio and gap as needed
 
@@ -574,167 +595,133 @@ with col1:
         # --- Drawable Canvas for ROI ---
         if DRAWABLE_CANVAS_AVAILABLE and st_canvas:
             st.caption("Draw a rectangle below to select a Region of Interest (ROI).")
-            # Dynamic canvas size calculation
-            MAX_CANVAS_WIDTH = 600 # Max width for the canvas container
-            MAX_CANVAS_HEIGHT = 550 # Max height
+            MAX_CANVAS_WIDTH = 600
+            MAX_CANVAS_HEIGHT = 550
             img_w, img_h = display_img.size
 
-            # Basic validation for image dimensions
             if img_w <= 0 or img_h <= 0:
                 st.warning("Image has invalid dimensions (<= 0). Cannot display canvas.")
             else:
                 aspect_ratio = img_w / img_h
-                # Calculate initial canvas size based on width constraint
                 canvas_width = min(img_w, MAX_CANVAS_WIDTH)
                 canvas_height = int(canvas_width / aspect_ratio)
-                # If height exceeds max, recalculate based on height constraint
                 if canvas_height > MAX_CANVAS_HEIGHT:
                     canvas_height = MAX_CANVAS_HEIGHT
                     canvas_width = int(canvas_height * aspect_ratio)
-                # Ensure minimum practical size
                 canvas_width = max(canvas_width, 150)
                 canvas_height = max(canvas_height, 150)
 
-                # Display the canvas
                 canvas_result = st_canvas(
-                    fill_color="rgba(255, 165, 0, 0.2)",  # Semi-transparent orange fill
+                    fill_color="rgba(255, 165, 0, 0.2)",
                     stroke_width=2,
-                    stroke_color="rgba(239, 83, 80, 0.8)", # Reddish stroke
+                    stroke_color="rgba(239, 83, 80, 0.8)",
                     background_image=display_img,
-                    update_streamlit=True, # Update Streamlit dynamically on drawing
+                    update_streamlit=True,
                     height=canvas_height,
                     width=canvas_width,
-                    drawing_mode="rect", # Only allow rectangles
-                    initial_drawing=st.session_state.get("canvas_drawing", None), # Persist drawing state
-                    key="drawable_canvas" # Unique key
+                    drawing_mode="rect",
+                    initial_drawing=st.session_state.get("canvas_drawing", None),
+                    key="drawable_canvas"
                 )
 
-                # Process canvas results to extract ROI coordinates
                 if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                    # Get the last drawn rectangle (assuming user draws one ROI)
                     last_object = canvas_result.json_data["objects"][-1]
                     if last_object["type"] == "rect":
-                        # Extract coordinates from canvas (scaled relative to canvas size)
                         canvas_left = int(last_object["left"])
                         canvas_top = int(last_object["top"])
-                        # Account for potential scaling within the canvas object itself
                         canvas_width_scaled = int(last_object["width"] * last_object.get("scaleX", 1))
                         canvas_height_scaled = int(last_object["height"] * last_object.get("scaleY", 1))
-
-                        # Calculate scaling factors from original image to canvas size
                         scale_x = img_w / canvas_width
                         scale_y = img_h / canvas_height
-
-                        # Convert canvas coordinates back to original image coordinates
                         original_left = int(canvas_left * scale_x)
                         original_top = int(canvas_top * scale_y)
                         original_width = int(canvas_width_scaled * scale_x)
                         original_height = int(canvas_height_scaled * scale_y)
-
-                        # Ensure coordinates are within image bounds
                         original_left = max(0, original_left)
                         original_top = max(0, original_top)
                         original_width = min(img_w - original_left, original_width)
                         original_height = min(img_h - original_top, original_height)
-
-                        # Store the ROI if it's valid and different from the last one
                         new_roi = {
                             "left": original_left, "top": original_top,
                             "width": original_width, "height": original_height
                         }
                         if st.session_state.roi_coords != new_roi and original_width > 0 and original_height > 0:
                             st.session_state.roi_coords = new_roi
-                            st.session_state.canvas_drawing = canvas_result.json_data # Save drawing state
+                            st.session_state.canvas_drawing = canvas_result.json_data
                             logger.info(f"New ROI selected (original coords): {new_roi}")
-                            # Use st.toast for less intrusive feedback
                             st.toast(f"ROI set: ({original_left},{original_top}), {original_width}x{original_height}", icon="🎯")
-                            # No rerun needed here as update_streamlit=True handles it
 
-        else: # Fallback if canvas is not available
+        else:
             st.image(display_img, caption="Image Preview (ROI drawing disabled)", use_container_width=True)
 
-        # Display current ROI coordinates if set
         if st.session_state.roi_coords:
             roi = st.session_state.roi_coords
             st.caption(f"Current ROI: ({roi['left']}, {roi['top']}) Size: {roi['width']}x{roi['height']}")
         else:
             st.caption("No ROI selected. Analysis will cover the entire image.")
 
-        st.markdown("---") # Separator
+        st.markdown("---")
 
-        # Display DICOM Metadata Expander
         if st.session_state.is_dicom and st.session_state.dicom_metadata:
             with st.expander("📄 View DICOM Metadata", expanded=False):
                 if UI_COMPONENTS_AVAILABLE:
                     display_dicom_metadata(st.session_state.dicom_metadata)
-                else: # Basic fallback if ui_components module failed
+                else:
                     st.json(st.session_state.dicom_metadata)
         elif st.session_state.is_dicom:
-            # Case where it's DICOM but metadata extraction failed or was empty
             st.caption("DICOM file loaded, but metadata could not be extracted or is empty.")
 
-    elif uploaded_file is not None: # If upload happened but display_img is None
+    elif uploaded_file is not None:
         st.error("Image preview failed. The file might be corrupted or unsupported after upload.")
-    else: # Default message when no image is loaded
+    else:
         st.info("⬅️ Please upload a de-identified image or enable Demo Mode in the sidebar.")
 
 # --- Column 2: Analysis Results & Interaction Tabs ---
 with col2:
     st.subheader("📊 Analysis & Interaction")
     tab_titles = [
-        "🔬 Structured Analysis", # Renamed
+        "🔬 Structured Analysis",
         "💬 Q&A History",
         "🩺 Condition Focus",
-        "🧪 LLM Self-Assessment", # Renamed
+        "🧪 LLM Self-Assessment",
         "🌐 Translation"
     ]
     tabs = st.tabs(tab_titles)
 
-    # Tab 1: Initial Analysis
     with tabs[0]:
         st.caption("Displays the AI's general structured analysis of the image/ROI.")
         analysis_text = st.session_state.initial_analysis or "Run 'Structured Initial Analysis' from the sidebar."
-        # Use markdown to render potentially structured output from AI
         st.markdown(analysis_text)
-        # Use a disabled text area as a container if markdown isn't enough or preferred
-        # st.text_area("Findings & Impressions", value=analysis_text, height=450, disabled=True, key="initial_analysis_display")
 
-    # Tab 2: Q&A History
     with tabs[1]:
         st.caption("Shows the latest answer and full conversation history.")
         st.markdown("**Latest AI Answer:**")
         latest_answer = st.session_state.qa_answer or "_Ask a question using the sidebar controls._"
-        st.markdown(latest_answer) # Display latest answer using markdown
-        # st.text_area("Latest AI Answer", value=latest_answer, height=200, disabled=True, key="qa_answer_display")
+        st.markdown(latest_answer)
         st.markdown("---")
-        # Display full history in an expander
         if st.session_state.history:
             with st.expander("Full Conversation History", expanded=True):
-                # Display history chronologically (newest at the bottom typical for chat)
                 for i, (q_type, message) in enumerate(st.session_state.history):
                     if q_type.lower() == "user question":
                         st.markdown(f"**You:** {message}")
                     elif q_type.lower() == "ai answer":
                         st.markdown(f"**AI:** {message}")
-                    elif "[fallback]" in q_type.lower(): # Handle fallback display
-                        st.markdown(f"**AI (Fallback):** {message.split('**')[-1]}") # Extract message part
+                    elif "[fallback]" in q_type.lower():
+                        st.markdown(f"**AI (Fallback):** {message.split('**')[-1]}")
                     elif q_type.lower() == "system":
                         st.info(f"*{message}*", icon="ℹ️")
-                    else: # General case
+                    else:
                         st.markdown(f"**{q_type}:** {message}")
                     if i < len(st.session_state.history) - 1:
-                        st.markdown("---") # Separator between messages
+                        st.markdown("---")
         else:
             st.caption("No questions asked in this session yet.")
 
-    # Tab 3: Condition Focus
     with tabs[2]:
         st.caption("Displays the AI's analysis focused on the selected condition.")
         condition_text = st.session_state.disease_analysis or "Select a condition and run 'Analyze for Condition' from the sidebar."
-        st.markdown(condition_text) # Use markdown for display
-        # st.text_area("Condition-Specific Analysis", value=condition_text, height=450, disabled=True, key="disease_analysis_display")
+        st.markdown(condition_text)
 
-    # Tab 4: LLM Self-Assessment (Experimental)
     with tabs[3]:
         st.caption("EXPERIMENTAL: Displays the AI's self-assessment score. Not clinical confidence.")
         st.warning("""
@@ -743,27 +730,23 @@ with col2:
             Use this score for informational insight into the AI's perspective only, and **treat it with extreme caution.**
         """, icon="🧪")
         confidence_text = st.session_state.confidence_score or "Run 'Estimate LLM Self-Assessment' from the sidebar after performing analysis."
-        st.markdown(confidence_text) # Use markdown for display
-        # st.text_area("LLM Self-Assessment Score (Experimental)", value=confidence_text, height=350, disabled=True, key="confidence_display")
+        st.markdown(confidence_text)
 
-    # Tab 5: Translation
     with tabs[4]:
         st.subheader("🌐 Translate Analysis Text")
         if not TRANSLATION_AVAILABLE:
             st.warning("Translation features are unavailable. The required 'deep-translator' library might be missing or failed to install.", icon="🚫")
         else:
             st.caption("Select analysis text, choose languages, and click 'Translate'.")
-            # Populate options dynamically based on available analysis results
             text_options = {
                 "Structured Initial Analysis": st.session_state.initial_analysis,
                 "Latest Q&A Answer": st.session_state.qa_answer,
                 "Condition Analysis": st.session_state.disease_analysis,
                 "LLM Self-Assessment": st.session_state.confidence_score,
-                "(Enter Custom Text Below)": "" # Option for manual input
+                "(Enter Custom Text Below)": ""
             }
-            # Filter out options with no text yet, always include custom entry
             available_labels = [label for label, txt in text_options.items() if txt or label == "(Enter Custom Text Below)"]
-            if not available_labels: available_labels = ["(Enter Custom Text Below)"] # Ensure custom is always there
+            if not available_labels: available_labels = ["(Enter Custom Text Below)"]
 
             selected_label = st.selectbox(
                 "Select text to translate:", options=available_labels, index=0,
@@ -771,20 +754,17 @@ with col2:
             )
             text_to_translate = text_options.get(selected_label, "")
 
-            # Allow user to input custom text if that option is selected
             if selected_label == "(Enter Custom Text Below)":
                 text_to_translate = st.text_area(
                     "Enter text to translate:", value="", height=150,
                     key="translate_custom_input"
                 )
 
-            # Display the text that will be translated (read-only)
             st.text_area(
                 "Text selected/entered for translation:", value=text_to_translate, height=100,
                 disabled=True, key="translate_preview"
             )
 
-            # Language selection dropdowns
             col_lang1, col_lang2 = st.columns(2)
             with col_lang1:
                 source_language_options = [AUTO_DETECT_INDICATOR] + sorted(list(LANGUAGE_CODES.keys()))
@@ -794,7 +774,6 @@ with col2:
                 )
             with col_lang2:
                 target_language_options = sorted(list(LANGUAGE_CODES.keys()))
-                # Try to default target to Spanish or English if available
                 default_target_index = 0
                 preferred_targets = ["Spanish", "English"]
                 for target in preferred_targets:
@@ -806,23 +785,19 @@ with col2:
                     key="translate_target_lang"
                 )
 
-            # Translate Button
             if st.button("🔄 Translate Now", key="translate_button"):
-                st.session_state.translation_result = None # Clear previous results
+                st.session_state.translation_result = None
                 st.session_state.translation_error = None
 
                 if not text_to_translate or not text_to_translate.strip():
                     st.warning("Please select or enter text to translate first.", icon="☝️")
                     st.session_state.translation_error = "Input text is empty."
-                # Avoid translating if source and target are identical (and not auto-detect)
                 elif source_language_name == target_language_name and source_language_name != AUTO_DETECT_INDICATOR:
                     st.info("Source and target languages are the same. No translation performed.", icon="✅")
                     st.session_state.translation_result = text_to_translate
                 else:
-                    # Perform translation using the backend function
                     with st.spinner(f"Translating from '{source_language_name}' to '{target_language_name}'..."):
                         try:
-                            # Call the translation utility function
                             translation_output = translate(
                                 text=text_to_translate,
                                 target_language=target_language_name,
@@ -832,22 +807,18 @@ with col2:
                                 st.session_state.translation_result = translation_output
                                 st.success("Translation complete!", icon="🎉")
                             else:
-                                # Handle cases where translation returns None without an exception
                                 st.error("Translation service returned an empty result. Please check the input or try again.", icon="❓")
                                 logger.warning("Translation function returned None.")
                                 st.session_state.translation_error = "Translation service returned no result."
                         except Exception as e:
-                            # Catch potential errors from the translation library/service
                             st.error(f"Translation failed: {e}", icon="❌")
                             logger.error(f"Translation error during execution: {e}", exc_info=True)
                             st.session_state.translation_error = str(e)
 
-            # Display Translation Result or Error
             if st.session_state.get("translation_result"):
                 formatted_result = format_translation(st.session_state.translation_result)
                 st.text_area("Translated Text:", value=formatted_result, height=200, key="translation_output_display")
             elif st.session_state.get("translation_error"):
-                # Show error message if translation failed
                 st.info(f"Translation Error: {st.session_state.translation_error}", icon="ℹ️")
 
 
@@ -859,7 +830,7 @@ if current_action:
     logger.info(f"Handling action: '{current_action}' for session: {st.session_state.session_id}")
 
     # --- Pre-Action Checks ---
-    action_requires_image = current_action in ["analyze", "ask", "disease", "confidence", "generate_report_data"] # Confidence might use image context too
+    action_requires_image = current_action in ["analyze", "ask", "disease", "confidence", "generate_report_data"]
     action_requires_llm = current_action in ["analyze", "ask", "disease", "confidence"]
     action_requires_report_util = (current_action == "generate_report_data")
     error_occurred = False
@@ -890,10 +861,8 @@ if current_action:
         if current_action == "analyze":
             st.toast("🔬 Performing initial structured analysis...", icon="⏳")
             with st.spinner("AI analyzing image structure and findings..."):
-                # **ASSUMPTION:** run_initial_analysis uses a responsible, agentic prompt
                 analysis_result = run_initial_analysis(img_for_llm, roi=roi_coords)
             st.session_state.initial_analysis = analysis_result
-            # Clear other analysis fields when running initial analysis
             st.session_state.qa_answer = ""
             st.session_state.disease_analysis = ""
             logger.info("Initial analysis action completed.")
@@ -905,26 +874,22 @@ if current_action:
                 st.warning("Question input was empty.", icon="❓")
             else:
                 st.toast(f"Asking AI: '{question_text[:50]}...'")
-                st.session_state.qa_answer = "" # Clear previous answer
+                st.session_state.qa_answer = ""
                 with st.spinner("AI formulating answer..."):
-                    # **ASSUMPTION:** run_multimodal_qa handles context appropriately
                     answer, success_flag = run_multimodal_qa(
                         img_for_llm, question_text, current_history, roi=roi_coords
                     )
                 if success_flag:
                     st.session_state.qa_answer = answer
-                    # Append interaction to history
                     st.session_state.history.append(("User Question", question_text))
                     st.session_state.history.append(("AI Answer", answer))
                     st.success("AI answered your question!", icon="💬")
                 else:
-                    # --- Primary AI Failure + Fallback Logic ---
                     primary_error_msg = f"Primary AI failed to answer: {answer}"
-                    st.session_state.qa_answer = primary_error_msg # Show primary error first
+                    st.session_state.qa_answer = primary_error_msg
                     st.error(primary_error_msg, icon="⚠️")
                     logger.warning(f"Primary Q&A failed: {answer}")
-
-                    hf_token = os.environ.get("HF_API_TOKEN") or st.secrets.get("HF_API_TOKEN") # Check secrets too
+                    hf_token = os.environ.get("HF_API_TOKEN") or st.secrets.get("HF_API_TOKEN")
                     if HF_MODELS_AVAILABLE and hf_token:
                         st.info(f"Attempting fallback VQA with Hugging Face model: {HF_VQA_MODEL_ID}", icon="🔄")
                         with st.spinner(f"Trying fallback model ({HF_VQA_MODEL_ID})..."):
@@ -936,30 +901,24 @@ if current_action:
                                 fallback_success = False
                                 fallback_answer = f"Error during fallback query: {hf_e}"
                                 logger.error(f"Fallback VQA query error: {hf_e}", exc_info=True)
-
                         if fallback_success:
                             fallback_display = f"**[Fallback: {HF_VQA_MODEL_ID}]**\n\n{fallback_answer}"
-                            st.session_state.qa_answer += f"\n\n---\n\n{fallback_display}" # Append fallback result
+                            st.session_state.qa_answer += f"\n\n---\n\n{fallback_display}"
                             st.session_state.history.append(("[Fallback] User Question", question_text))
                             st.session_state.history.append(("[Fallback] AI Answer", fallback_display))
                             st.success("Fallback AI provided an answer.", icon="👍")
                         else:
                             fallback_error_msg = f"[Fallback Error - {HF_VQA_MODEL_ID}]: {fallback_answer}"
-                            st.session_state.qa_answer += f"\n\n---\n\n{fallback_error_msg}" # Append fallback error
+                            st.session_state.qa_answer += f"\n\n---\n\n{fallback_error_msg}"
                             st.error("Fallback AI also failed.", icon="👎")
                             logger.warning(f"Fallback VQA failed: {fallback_answer}")
                     elif HF_MODELS_AVAILABLE and not hf_token:
-                        # Only warn if module exists but token is missing
                         no_token_msg = "[Fallback Skipped: Hugging Face API Token (HF_API_TOKEN) not configured in environment/secrets]"
                         st.session_state.qa_answer += f"\n\n---\n\n{no_token_msg}"
                         st.warning("Hugging Face API token needed for fallback VQA.", icon="🔑")
                     else:
-                        # If module itself is unavailable
                         no_fallback_msg = "[Fallback VQA Unavailable]"
                         st.session_state.qa_answer += f"\n\n---\n\n{no_fallback_msg}"
-                        # Optional: Add a less prominent warning if desired
-                        # st.caption("Note: Fallback Q&A model is not configured.")
-                # -----------------------------------------
 
         elif current_action == "disease":
             selected_disease = st.session_state.disease_select_widget
@@ -968,92 +927,84 @@ if current_action:
             else:
                 st.toast(f"🩺 Analyzing image specifically for '{selected_disease}'...", icon="⏳")
                 with st.spinner(f"AI analyzing for signs of {selected_disease}..."):
-                    # **ASSUMPTION:** run_disease_analysis uses a responsible, agentic prompt
                     disease_result = run_disease_analysis(img_for_llm, selected_disease, roi=roi_coords)
                 st.session_state.disease_analysis = disease_result
-                st.session_state.qa_answer = "" # Clear Q&A answer
+                st.session_state.qa_answer = ""
                 logger.info(f"Disease-specific analysis action for '{selected_disease}' completed.")
                 st.success(f"Analysis focused on '{selected_disease}' complete!", icon="✅")
 
+        # --- v v v --- THIS ACTION BLOCK IS UPDATED --- v v v ---
         elif current_action == "confidence":
-            # Check if there's anything to base confidence on
-            if not (current_history or st.session_state.initial_analysis or st.session_state.disease_analysis):
-                st.warning("Please perform at least one analysis (Initial, Q&A, or Condition) before estimating assessment.", icon="📊")
+            # Check if there's anything to base assessment on (needs prior interaction history)
+            if not current_history: # Check if history list is empty
+                st.warning("Please ask at least one question before estimating the AI's self-assessment.", icon="📊")
             else:
                 st.toast("🧪 Estimating LLM self-assessment (Experimental)...", icon="⏳")
                 with st.spinner("AI assessing its previous responses..."):
-                    # **ASSUMPTION:** estimate_ai_confidence explains its basis and limitations
-                    confidence_result = estimate_ai_confidence(
-                        img_for_llm, history=current_history,
-                        initial_analysis=st.session_state.initial_analysis,
-                        disease_analysis=st.session_state.disease_analysis,
-                        roi=roi_coords
+                    # **ASSUMPTION:** Backend function explains its basis and limitations
+                    assessment_result = run_llm_self_assessment( # <<<--- UPDATED FUNCTION NAME HERE
+                        image=img_for_llm, # Pass the correct image variable
+                        history=current_history,
+                        roi=roi_coords # Pass the ROI state from the time of the last assessed interaction
                     )
-                st.session_state.confidence_score = confidence_result
+                # Store the result in the session state key the UI uses
+                st.session_state.confidence_score = assessment_result
                 st.success("LLM self-assessment estimation complete!", icon="✅")
+        # --- ^ ^ ^ --- END OF UPDATED ACTION BLOCK --- ^ ^ ^ ---
 
         elif current_action == "generate_report_data":
             st.toast("📄 Generating PDF report data...", icon="⏳")
-            st.session_state.pdf_report_bytes = None # Clear previous
-            image_for_report = st.session_state.get("display_image") # Use the display image for context
+            st.session_state.pdf_report_bytes = None
+            image_for_report = st.session_state.get("display_image")
 
             if not isinstance(image_for_report, Image.Image):
                 st.error("Cannot generate report: No valid image currently loaded.", icon="🖼️")
             else:
-                # Prepare image for PDF (copy, ensure RGB, draw ROI if present)
                 final_image_for_pdf = image_for_report.copy().convert("RGB")
                 if roi_coords:
                     try:
                         draw = ImageDraw.Draw(final_image_for_pdf)
                         x0, y0 = roi_coords['left'], roi_coords['top']
                         x1, y1 = x0 + roi_coords['width'], y0 + roi_coords['height']
-                        # Draw a noticeable rectangle
                         draw.rectangle(
                             [x0, y0, x1, y1], outline="red",
-                            width=max(3, int(min(final_image_for_pdf.size) * 0.005)) # Scale width slightly
+                            width=max(3, int(min(final_image_for_pdf.size) * 0.005))
                         )
                         logger.info("ROI bounding box drawn onto image for PDF report.")
                     except Exception as draw_e:
                         logger.error(f"Error drawing ROI box on PDF image: {draw_e}", exc_info=True)
                         st.warning("Could not draw the ROI box on the report image.", icon="✏️")
 
-                # Format history for the report
                 formatted_history = "No Q&A interactions recorded for this session."
                 if current_history:
                     lines = []
                     for q_type, msg in current_history:
-                        # Basic cleaning (remove potential HTML if accidentally included)
                         cleaned_msg = re.sub('<[^<]+?>', '', str(msg)).strip()
                         lines.append(f"[{q_type}]:\n{cleaned_msg}")
                     formatted_history = "\n\n---\n\n".join(lines)
 
-                # Gather all data for the report
                 report_data = {
                     "Session ID": st.session_state.session_id,
-                    "Image Filename": (st.session_state.uploaded_file_info or "N/A").split('-')[0], # Extract original filename
+                    "Image Filename": (st.session_state.uploaded_file_info or "N/A").split('-')[0],
                     "Structured Initial Analysis": st.session_state.initial_analysis or "Not Performed",
                     "Q&A History": formatted_history,
                     "Condition Specific Analysis": st.session_state.disease_analysis or "Not Performed",
                     "LLM Self-Assessment (Experimental)": st.session_state.confidence_score or "Not Performed",
                 }
-                # Add DICOM summary if available
                 if st.session_state.is_dicom and st.session_state.dicom_metadata:
-                    # Select key DICOM tags for summary
                     meta_summary = {
                         tag: st.session_state.dicom_metadata.get(tag, "N/A")
                         for tag in ['PatientName', 'PatientID', 'StudyDate', 'Modality', 'StudyDescription', 'InstitutionName']
-                        if tag in st.session_state.dicom_metadata # Check if tag exists
+                        if tag in st.session_state.dicom_metadata
                     }
                     if meta_summary:
                         lines = [f"{k.replace('PatientName', 'Patient Name').replace('PatientID', 'Patient ID').replace('StudyDate', 'Study Date').replace('StudyDescription', 'Study Desc.')}: {v}" for k, v in meta_summary.items()]
                         report_data["DICOM Summary"] = "\n".join(lines)
 
-                # Generate the PDF bytes using the backend utility
                 with st.spinner("Compiling PDF report..."):
-                    # **ASSUMPTION:** generate_pdf_report_bytes includes necessary disclaimers
                     pdf_bytes = generate_pdf_report_bytes(
                         session_id=st.session_state.session_id,
-                        image=final_image_for_pdf, # Image with ROI drawn if applicable
+                        image=final_image_for_pdf,
                         analysis_outputs=report_data,
                         dicom_metadata=st.session_state.dicom_metadata if st.session_state.is_dicom else None
                     )
@@ -1062,7 +1013,7 @@ if current_action:
                     st.session_state.pdf_report_bytes = pdf_bytes
                     st.success("PDF report data generated! Download button available in the sidebar.", icon="📄")
                     logger.info("PDF report generation successful.")
-                    st.balloons() # Fun feedback!
+                    st.balloons()
                 else:
                     st.error("Failed to generate PDF report data. Check logs for details.", icon="❌")
                     logger.error("PDF generation function returned None or empty bytes.")
@@ -1072,15 +1023,12 @@ if current_action:
             logger.warning(f"Unhandled action '{current_action}' encountered.")
 
     except Exception as e:
-        # General catch-all for errors during action execution
         st.error(f"An unexpected error occurred while processing '{current_action}': {e}", icon="💥")
         logger.critical(f"Error during action '{current_action}': {e}", exc_info=True)
 
     finally:
-        # --- Post-Action Cleanup ---
-        st.session_state.last_action = None # IMPORTANT: Reset the action trigger
+        st.session_state.last_action = None
         logger.debug(f"Action '{current_action}' processing finished.")
-        # Rerun to update the UI state based on the action's results
         st.rerun()
 
 # --- Footer ---
