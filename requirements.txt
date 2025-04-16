@@ -31,6 +31,7 @@ numpy>=1.23       # Fundamental numeric library (ensure compatible version)
 requests>=2.27    # For HTTP requests (e.g., HF API, translation)
 protobuf<4        # Explicit constraint from base build steps, good to maintain
 pyyaml>=6.0       # Used by HF Hub / Transformers config loading
+google-generativeai
 
 # Report Generation
 fpdf              # For generating PDF reports (usually okay with latest)
