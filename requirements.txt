@@ -31,8 +31,9 @@ google-generativeai
 fpdf2>=2.6.0
 
 # Clinical NLP / UMLS & ScispaCy
-scispacy>=0.5.1
 spacy>=3.5.0
+scispacy>=0.5.1
+umls-api-client
 
 # (Optional) Additional Dependencies
 # multiprocessing, logging, etc.
