@@ -2,18 +2,27 @@
 import streamlit as st
 import random
 import logging
-from config import TIPS, DISEASE_OPTIONS # Import from config
-from ui_components import dicom_wl_sliders # Import needed UI component
+from config import TIPS, DISEASE_OPTIONS
 from PIL import Image # Check image type
+# Import UI components directly needed
+from ui_components import dicom_wl_sliders, UI_COMPONENTS_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
-# Import necessary modules for dependencies, consider passing availability flags if needed
-from report_utils import REPORT_UTILS_AVAILABLE # Example dependency check
+# --- Check for Report Utils Availability HERE ---
+try:
+    from report_utils import generate_pdf_report_bytes # Import the function needed
+    REPORT_UTILS_AVAILABLE = True
+    logger.info("Report utilities (generate_pdf_report_bytes) found.")
+except ImportError:
+    REPORT_UTILS_AVAILABLE = False
+    logger.warning("report_utils not found or generate_pdf_report_bytes missing. PDF reporting disabled in sidebar.")
+# --- End Check ---
+
 
 def render_sidebar():
     """Renders the sidebar UI elements and returns the uploaded file object."""
-    uploaded_file = None # Initialize
+    uploaded_file = None
 
     with st.sidebar:
         st.header("⚕️ RadVision Controls")
@@ -25,7 +34,7 @@ def render_sidebar():
         uploaded_file = st.file_uploader(
             "Upload Image (JPG, PNG, DCM)",
             type=["jpg","jpeg","png","dcm","dicom"],
-            key="file_uploader_widget", # Keep the key consistent
+            key="file_uploader_widget",
             help="Upload medical image. DICOM preferred."
         )
 
@@ -34,7 +43,6 @@ def render_sidebar():
             value=st.session_state.get("demo_loaded", False),
             help="Load sample X-ray."
         )
-        # Add Demo Mode implementation logic here if needed
 
         if st.button("🗑️ Clear ROI", help="Remove selected ROI", key="clear_roi_btn"):
             st.session_state.roi_coords = None
@@ -49,15 +57,15 @@ def render_sidebar():
             st.session_state.clear_roi_feedback = False
 
         # --- DICOM W/L ---
-        # Check conditions needed to display sliders
-        # Moved `UI_COMPONENTS_AVAILABLE` check inside for clarity
-        from ui_components import UI_COMPONENTS_AVAILABLE # Check here
         if st.session_state.get("is_dicom") and isinstance(st.session_state.get("display_image"), Image.Image) and UI_COMPONENTS_AVAILABLE:
             st.markdown("---")
             st.subheader("DICOM Display")
-            # Note: dicom_wl_sliders might need DICOM_UTILS_AVAILABLE check internally or pass it
-            from dicom_utils import DICOM_UTILS_AVAILABLE, dicom_to_image # Check/Import here
-            from PIL import Image # Ensure Image is available
+            try:
+                from dicom_utils import DICOM_UTILS_AVAILABLE, dicom_to_image # Import here too
+            except ImportError:
+                DICOM_UTILS_AVAILABLE = False
+                dicom_to_image = None
+                logger.warning("dicom_utils unavailable within sidebar W/L logic.")
 
             new_wc, new_ww = dicom_wl_sliders(
                 st.session_state.get("dicom_dataset"),
@@ -65,22 +73,19 @@ def render_sidebar():
                 st.session_state.get("current_display_ww")
             )
 
-            # Handle W/L change
             if new_wc != st.session_state.get("current_display_wc") or new_ww != st.session_state.get("current_display_ww"):
                 logger.info(f"W/L changed: WC={new_wc}, WW={new_ww}")
                 st.session_state.current_display_wc = new_wc
                 st.session_state.current_display_ww = new_ww
 
-                if DICOM_UTILS_AVAILABLE and st.session_state.get("dicom_dataset") and PIL_AVAILABLE:
+                if DICOM_UTILS_AVAILABLE and dicom_to_image and st.session_state.get("dicom_dataset") and PIL_AVAILABLE:
                     with st.spinner("Applying W/L..."):
                         logger.debug("Regenerating display image...")
                         new_display_img = dicom_to_image(st.session_state.dicom_dataset, wc=new_wc, ww=new_ww)
                         if isinstance(new_display_img, Image.Image):
                             st.session_state.display_image = new_display_img.convert('RGB') if new_display_img.mode != 'RGB' else new_display_img
                             logger.info("Display image updated."); st.rerun()
-                        else:
-                            st.error("Failed to update DICOM image.")
-                            logger.error(f"dicom_to_image invalid type ({type(new_display_img)}).")
+                        else: st.error("Failed to update DICOM image."); logger.error(f"dicom_to_image invalid type ({type(new_display_img)}).")
                 elif not DICOM_UTILS_AVAILABLE: st.warning("DICOM utils unavailable."); logger.warning("W/L changed; DICOM utils missing.")
                 elif not st.session_state.dicom_dataset: st.warning("DICOM dataset missing."); logger.warning("W/L changed; DICOM dataset missing.")
 
@@ -108,6 +113,7 @@ def render_sidebar():
         if st.button("📈 Estimate AI Confidence", key="confidence_btn", disabled=not can_estimate):
             st.session_state.last_action = "confidence"; st.rerun()
 
+        # Use the locally defined REPORT_UTILS_AVAILABLE flag
         report_disabled = action_disabled or not REPORT_UTILS_AVAILABLE
         if st.button("📄 Generate PDF Report Data", key="generate_report_data_btn", disabled=report_disabled):
             st.session_state.last_action = "generate_report_data"; st.rerun()
@@ -116,4 +122,4 @@ def render_sidebar():
             report_filename = f"RadVisionAI_Report_{st.session_state.get('session_id', 'session')}.pdf"
             st.download_button("⬇️ Download PDF Report", st.session_state.pdf_report_bytes, report_filename, "application/pdf", key="download_pdf_button", help="Download generated PDF.")
 
-    return uploaded_file # Return the file object for processing
+    return uploaded_file
