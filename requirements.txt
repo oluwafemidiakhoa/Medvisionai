@@ -1,59 +1,38 @@
-
-
-
-
 # Core Framework
-streamlit==1.44.1  # Pin Streamlit version (from logs)
+streamlit==1.44.1
 
 # UI Components
-streamlit-drawable-canvas # Pin known version (update if needed)
+streamlit-drawable-canvas
 
-# Image Processing
-Pillow==11.1.0      # Pin PIL version (from logs)
+# Image & DICOM Processing
+Pillow==11.1.0
+pydicom==3.0.1
+pylibjpeg
+pylibjpeg-libjpeg
+python-gdcm
 
-# DICOM Processing
-pydicom==3.0.1       # Pin version (from logs)
-pylibjpeg           # For JPEG compressed DICOM (usually okay with latest)
-pylibjpeg-libjpeg   # Backend for pylibjpeg (usually okay with latest)
-python-gdcm         # Alternative DICOM handler (usually okay with latest)
+# AI / Machine Learning Core
+transformers>=4.30.0
+torch>=2.0.0
+sentencepiece
+accelerate
 
-# AI / Machine Learning Core (Hugging Face ecosystem)
-transformers>=4.30.0  # Keep minimum version, allow updates
-torch>=2.0.0          # Keep minimum version
-sentencepiece       # Needed by some tokenizers (usually okay with latest)
-accelerate          # For efficient model loading/inference (usually okay with latest)
+# Translation Service
+deep-translator==1.11.4
 
-# Translation Service (Pinning due to previous import issues)
-deep-translator==1.11.4 # CRITICAL: Pinning specific version confirmed in build
-
-# Core Dependencies (Often pulled by others, listed for clarity/pinning)
-numpy>=1.23       # Fundamental numeric library (ensure compatible version)
-requests>=2.27    # For HTTP requests (e.g., HF API, translation)
-protobuf<4        # Explicit constraint from base build steps, good to maintain
-pyyaml>=6.0       # Used by HF Hub / Transformers config loading
+# Utilities & Core Dependencies
+numpy>=1.23
+requests>=2.31.0
+protobuf<4
+pyyaml>=6.0
 google-generativeai
 
 # Report Generation
-fpdf              # For generating PDF reports (usually okay with latest)
-
-requests>=2.28.0
-scispacy>=0.5.1
-spacy>=3.5.0
 fpdf2>=2.6.0
 
+# Clinical NLP / UMLS & ScispaCy
+scispacy>=0.5.1
+spacy>=3.5.0
 
-pillow>=10.0
-deep-translator
-requests>=2.31.0
-# requirements.txt
-
-
-
-# API interactions & web requests
-requests>=2.25.0
-
-# Image processing
-Pillow>=9.0.0
-
-
-
+# (Optional) Additional Dependencies
+# multiprocessing, logging, etc.
