@@ -1,211 +1,209 @@
 # -*- coding: utf-8 -*-
 """
-umls_utils.py - UMLS REST API Interaction Utilities
+umls_utils.py – Tiny helper around the UMLS REST API
 ===================================================
 
-Handles authentication and search requests to the UMLS Terminology Services API.
-Exports the UMLSConcept dataclass and checks/reports its own load status.
+Public surface
+--------------
+search_umls(term: str, apikey: str, *, page_size: int = 5) -> list[UMLSConcept]
+get_cached_tgt(apikey: str) -> str
+flush_tgt_cache() -> None
+
+A minimal, dependency‑free cache keeps the TGT for 8 hours inside the module
+process; Hugging Face Spaces restart often enough that this is sufficient.
 """
+
 from __future__ import annotations
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Std‑lib
+# ─────────────────────────────────────────────────────────────────────────────
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
-# --- Dependency Check & Availability ---
-_MODULE_LOAD_SUCCESS = False
-_REQUESTS_AVAILABLE = False
+# ─────────────────────────────────────────────────────────────────────────────
+# Third‑party
+# ─────────────────────────────────────────────────────────────────────────────
 try:
     import requests
     from requests.exceptions import RequestException
-    _REQUESTS_AVAILABLE = True
-    _MODULE_LOAD_SUCCESS = True  # Module structure loaded, requests is available
-    logging.getLogger(__name__).debug("Successfully imported 'requests' library for UMLS.")
-except ImportError:
-    logging.getLogger(__name__).warning(
-        "Failed to import 'requests' library. UMLS functionality requires 'requests'. "
-        "Ensure it is listed in requirements.txt."
-    )
-    # Define dummy classes/exceptions if requests is not installed,
-    # so the rest of the file can be parsed without errors.
-    class RequestException(Exception): pass
-    class requests: Session = type('Session', (object,), {}) # type: ignore[misc]
+except ImportError as exc:                                        # pragma: no cover
+    raise ImportError(
+        "'requests' library is required for umls_utils.py – add it to requirements.txt"
+    ) from exc
 
-# --- Constants and Configuration ---
+# ─────────────────────────────────────────────────────────────────────────────
+# Constants – override in tests if you like
+# ─────────────────────────────────────────────────────────────────────────────
+TGT_URL              = "https://utslogin.nlm.nih.gov/cas/v1/api-key"
+STS_URL              = "https://uts-ws.nlm.nih.gov/rest/search/current"
+DEFAULT_SERVICE      = "http://umlsks.nlm.nih.gov"
+USER_AGENT           = "RadVisionAI/1.0 (+https://hf.co/spaces/mgbam/radvisionai)"
+TIMEOUT              = 15          # s
+SLEEP_BETWEEN_CALLS  = 0.06        # ~16 req/s overall
+TGT_CACHE_SECONDS    = 8 * 60 * 60 # 8 h
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
-TGT_URL: str = "https://utslogin.nlm.nih.gov/cas/v1/api-key"
-SEARCH_URL: str = "https://uts-ws.nlm.nih.gov/rest/search/current"
-DEFAULT_SERVICE: str = "http://umlsks.nlm.nih.gov"
-USER_AGENT: str = "RadVisionAI/1.0 (+https://huggingface.co/spaces/mgbam/radvisionai)" # Customize if needed
-TIMEOUT: int = 15  # seconds
-RATE_LIMIT_SLEEP: float = 0.06  # ~16 requests/sec max overall
+# ─────────────────────────────────────────────────────────────────────────────
+# Exceptions
+# ─────────────────────────────────────────────────────────────────────────────
+class UMLSError(RuntimeError):          """Base error for this module."""
+class UMLSAuthError(UMLSError):          """Authentication (TGT / ST) failed."""
+class UMLSSearchError(UMLSError):        """Search endpoint returned an error."""
+class UMLSConnectionError(UMLSError):    """Network‑level error."""
 
-# --- Module Load Status ---
-# This flag indicates if the module AND its essential 'requests' dependency loaded.
-UMLS_UTILS_LOADED: bool = _MODULE_LOAD_SUCCESS
-
-# --- Custom Exceptions ---
-class UMLSError(RuntimeError):
-    """Base exception for UMLS utility errors."""
-    pass
-class UMLSAuthError(UMLSError):
-    """Raised for authentication problems (TGT or ST acquisition)."""
-    pass
-class UMLSConnectionError(UMLSError):
-    """Raised for network connectivity issues during API calls."""
-    pass
-class UMLSSearchError(UMLSError):
-    """Raised specifically for errors during the search phase."""
-    pass
-
-# --- Data Structures ---
-@dataclass
+# ─────────────────────────────────────────────────────────────────────────────
+# Dataclass
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass(slots=True)
 class UMLSConcept:
-    """Represents a single concept returned by the UMLS search."""
-    ui: str = field(default="")
-    name: str = field(default="")
-    rootSource: str = field(default="")
-    uri: str = field(default="")
-    uriLabel: Optional[str] = field(default=None)
+    ui:          str
+    name:        str
+    rootSource:  str
+    uri:         str
+    uriLabel:    Optional[str] = None
 
     @classmethod
-    def from_json(cls, item: Dict[str, Any]) -> UMLSConcept:
-        if not isinstance(item, dict):
-            logger.warning("Received non-dict item for UMLSConcept creation: %s", type(item))
-            return cls()
+    def from_json(cls, item: Dict[str, Any]) -> "UMLSConcept":
         return cls(
-            ui=item.get("ui", ""),
-            name=item.get("name", ""),
-            rootSource=item.get("rootSource", ""),
-            uri=item.get("uri", ""),
-            uriLabel=item.get("uriLabel"),
+            ui         = item.get("ui", ""),
+            name       = item.get("name", ""),
+            rootSource = item.get("rootSource", ""),
+            uri        = item.get("uri", ""),
+            uriLabel   = item.get("uriLabel"),
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {"ui": self.ui, "name": self.name, "rootSource": self.rootSource, "uri": self.uri, "uriLabel": self.uriLabel}
+    def to_dict(self) -> Dict[str, str]:
+        return {
+            "ui":         self.ui,
+            "name":       self.name,
+            "rootSource": self.rootSource,
+            "uri":        self.uri,
+            "uriLabel":   self.uriLabel or "",
+        }
 
-# --- Internal Helper Functions ---
+# ─────────────────────────────────────────────────────────────────────────────
+# Simple in‑memory TGT cache
+# ─────────────────────────────────────────────────────────────────────────────
+_tgt_cache: Dict[str, tuple[str, float]] = {}      # {apikey: (tgt_url, expiry_ts)}
 
-def _create_session() -> requests.Session:
-    """Creates a requests Session with default headers."""
-    if not _REQUESTS_AVAILABLE:
-        raise UMLSError("Cannot create session: 'requests' library is not available.")
-    session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
-    return session
+def flush_tgt_cache() -> None:
+    """Erase the in‑memory TGT cache (mainly for unit tests)."""
+    _tgt_cache.clear()
+    logger.debug("TGT cache flushed.")
 
-def _get_tgt(apikey: str, session: requests.Session) -> str:
-    """Requests a Ticket-Granting Ticket (TGT)."""
-    if not _REQUESTS_AVAILABLE: raise UMLSError("Cannot get TGT: 'requests' not available.")
-    if not apikey: raise UMLSAuthError("UMLS API key is missing or empty.")
-    logger.debug("Requesting UMLS TGT...")
+def get_cached_tgt(apikey: str) -> str:
+    """Return a cached TGT or fetch a new one if expired/absent."""
+    tgt, exp = _tgt_cache.get(apikey, ("", 0.0))
+    if time.time() < exp:
+        logger.debug("Re‑using cached TGT (expires in %.0f s).", exp - time.time())
+        return tgt
+
+    logger.debug("Requesting new TGT…")
     try:
-        resp = session.post(TGT_URL, data={"apikey": apikey}, timeout=TIMEOUT)
-        time.sleep(RATE_LIMIT_SLEEP)
+        resp = _SESSION.post(
+            TGT_URL,
+            data={"apikey": apikey},
+            timeout=TIMEOUT,
+        )
+        time.sleep(SLEEP_BETWEEN_CALLS)
         resp.raise_for_status()
-        if resp.status_code == 201 and "location" in resp.headers:
-            logger.debug("Successfully obtained TGT.")
-            return resp.headers["location"]
-        else:
-            raise UMLSAuthError(f"Failed to obtain TGT: Status {resp.status_code}, Headers: {resp.headers}")
-    except RequestException as e:
-        logger.error("Network error obtaining TGT: %s", e)
-        raise UMLSConnectionError(f"Network error obtaining TGT: {e}") from e
-    except Exception as e:
-        logger.error("Error obtaining TGT: %s", e, exc_info=True)
-        if isinstance(e, UMLSAuthError): raise
-        raise UMLSError(f"Failed to obtain TGT: {e}") from e
+        if resp.status_code != 201 or "location" not in resp.headers:
+            raise UMLSAuthError(f"TGT request failed: HTTP {resp.status_code}")
+        tgt_url = resp.headers["location"]
+    except RequestException as exc:
+        raise UMLSConnectionError(f"Network error obtaining TGT – {exc}") from exc
 
-def _get_service_ticket(tgt_location: str, session: requests.Session, service: str = DEFAULT_SERVICE) -> str:
-    """Exchanges a TGT for a single-use Service Ticket (ST)."""
-    if not _REQUESTS_AVAILABLE: raise UMLSError("Cannot get ST: 'requests' not available.")
-    logger.debug("Requesting UMLS Service Ticket (ST)...")
+    _tgt_cache[apikey] = (tgt_url, time.time() + TGT_CACHE_SECONDS)
+    logger.info("Obtained new TGT; cached for %dh.", TGT_CACHE_SECONDS // 3600)
+    return tgt_url
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared requests.Session
+# ─────────────────────────────────────────────────────────────────────────────
+_SESSION = requests.Session()
+_SESSION.headers.update({"User-Agent": USER_AGENT})
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public function
+# ─────────────────────────────────────────────────────────────────────────────
+def search_umls(term: str, apikey: str, *, page_size: int = 5) -> List[UMLSConcept]:
+    """
+    Query the UMLS Metathesaurus search endpoint.
+
+    Parameters
+    ----------
+    term : str
+        Search phrase, e.g. “pulmonary embolism”.
+    apikey : str
+        Your personal UMLS API key (will be exchanged for TGT → ST).
+    page_size : int, default 5
+        Maximum number of results.
+
+    Returns
+    -------
+    list[UMLSConcept]
+    """
+    if not term.strip():
+        raise ValueError("search_umls: term may not be empty.")
+    if page_size <= 0:
+        raise ValueError("search_umls: page_size must be positive.")
+
+    # 1 • get TGT (cached) → ST
+    tgt_url = get_cached_tgt(apikey)                    # may raise
     try:
-        resp = session.post(tgt_location, data={"service": service}, timeout=TIMEOUT)
-        time.sleep(RATE_LIMIT_SLEEP)
+        resp_st = _SESSION.post(
+            tgt_url, data={"service": DEFAULT_SERVICE}, timeout=TIMEOUT
+        )
+        time.sleep(SLEEP_BETWEEN_CALLS)
+        resp_st.raise_for_status()
+        st_ticket = resp_st.text
+    except RequestException as exc:
+        raise UMLSConnectionError(f"Network error obtaining ST – {exc}") from exc
+    if not st_ticket:
+        raise UMLSAuthError("Received empty ST ticket from UMLS.")
+
+    # 2 • search
+    params = {"string": term, "ticket": st_ticket, "pageSize": str(page_size)}
+    try:
+        resp = _SESSION.get(STS_URL, params=params, timeout=TIMEOUT)
+        time.sleep(SLEEP_BETWEEN_CALLS)
         resp.raise_for_status()
-        if resp.status_code == 200 and resp.text:
-            logger.debug("Successfully obtained Service Ticket.")
-            return resp.text
-        else:
-             raise UMLSAuthError(f"Failed to obtain ST: Status {resp.status_code}, Response empty: {not resp.text}")
-    except RequestException as e:
-        logger.error("Network error obtaining ST: %s", e)
-        raise UMLSConnectionError(f"Network error obtaining ST: {e}") from e
-    except Exception as e:
-        logger.error("Error obtaining ST: %s", e, exc_info=True)
-        if isinstance(e, UMLSAuthError): raise
-        raise UMLSError(f"Failed to obtain ST: {e}") from e
+        data = resp.json()
+    except RequestException as exc:
+        raise UMLSConnectionError(f"Network error during search – {exc}") from exc
+    except ValueError as exc:
+        raise UMLSSearchError("Invalid JSON from UMLS search.") from exc
 
-# --- Public Search Function ---
+    items = data.get("result", {}).get("results", [])
+    if not isinstance(items, list):
+        logger.warning("UMLS search: unexpected JSON structure.")
+        return []
 
-def search_umls(term: str, apikey: str, page_size: int = 5) -> List[UMLSConcept]:
-    """Searches the UMLS Metathesaurus for a given term."""
-    if not UMLS_UTILS_LOADED:
-        raise UMLSError("UMLS search cannot proceed: UMLS Utils or 'requests' library not loaded.")
-    if not term: raise ValueError("Search term cannot be empty.")
-    if page_size <= 0: raise ValueError("Page size must be positive.")
-    if not apikey: raise UMLSAuthError("UMLS API key must be provided for search.")
+    return [UMLSConcept.from_json(it) for it in items]
 
-    session = _create_session()
+# ─────────────────────────────────────────────────────────────────────────────
+# Quick CLI test
+# ─────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":                              # pragma: no cover
+    import os, pprint, sys
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    key  = os.getenv("UMLS_APIKEY") or sys.exit("Set UMLS_APIKEY first.")
+    term = " ".join(sys.argv[1:]) or "pulmonary embolism"
+    print(f"Searching UMLS for: {term!r} …")
     try:
-        tgt_location = _get_tgt(apikey, session)
-        service_ticket = _get_service_ticket(tgt_location, session)
+        concepts = search_umls(term, key, page_size=3)
+    except UMLSError as exc:
+        sys.exit(f"UMLS error: {exc}")
 
-        logger.info("Searching UMLS for '%s' (page size: %d)...", term, page_size)
-        headers = {"Accept": "application/json"}
-        params = {"string": term, "ticket": service_ticket, "pageSize": str(page_size)}
-
-        resp = session.get(SEARCH_URL, params=params, headers=headers, timeout=TIMEOUT)
-        time.sleep(RATE_LIMIT_SLEEP)
-        resp.raise_for_status()
-
-        if resp.status_code == 200:
-            try:
-                data = resp.json()
-                results_data = data.get("result", {}).get("results", [])
-                if not isinstance(results_data, list):
-                     logger.warning("UMLS search 'results' field is not a list: %s", type(results_data))
-                     return []
-                concepts = [UMLSConcept.from_json(item) for item in results_data]
-                logger.info("Found %d UMLS concepts for '%s'.", len(concepts), term)
-                return concepts
-            except ValueError as json_err:
-                logger.error("Failed to decode JSON response from UMLS search: %s", resp.text[:500])
-                raise UMLSSearchError("Invalid JSON response received from UMLS search.") from json_err
-        else:
-            raise UMLSSearchError(f"UMLS search failed with status code {resp.status_code}.")
-
-    except RequestException as e:
-        logger.error("Network error during UMLS search for '%s': %s", term, e)
-        raise UMLSConnectionError(f"Network error during UMLS search: {e}") from e
-    except (UMLSAuthError, UMLSConnectionError, UMLSSearchError, ValueError) as e:
-        logger.error("UMLS search failed for '%s': %s", term, e)
-        raise e # Re-raise specific known errors
-    except Exception as e:
-        logger.exception("An unexpected error occurred during UMLS search for '%s'", term)
-        raise UMLSError(f"An unexpected error occurred during UMLS search: {e}") from e
-    finally:
-        session.close()
-
-# --- CLI Testing ---
-if __name__ == "__main__":
-    # Keep the __main__ block as previously refined for testing
-    import os, sys, pprint
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(name)s:%(message)s')
-    if not UMLS_UTILS_LOADED: sys.exit("Error: UMLS Utils require 'requests'. Install it.")
-    key = os.getenv("UMLS_APIKEY")
-    if not key: sys.exit("Error: Set UMLS_APIKEY environment variable.")
-    term_to_search = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "myocardial infarction"
-    print(f"--- Testing UMLS Search for: '{term_to_search}' ---")
-    try:
-        results = search_umls(term_to_search, key, page_size=3)
-        if results:
-             print("--- Results ---")
-             pprint.pp([c.to_dict() for c in results])
-        else:
-             print("--- No results found ---")
-    except Exception as e:
-        print(f"--- Error during test: {e} ---")
+    if concepts:
+        pprint.pp([c.to_dict() for c in concepts])
+    else:
+        print("No concepts found.")
