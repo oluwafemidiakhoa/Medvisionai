@@ -2,11 +2,10 @@
 import streamlit as st
 import logging
 import sys
-# Imports needed ONLY for monkey-patch now
-import copy
-import io
-import base64
-import os # Keep for getenv potentially used elsewhere, or remove if only in action_handlers
+import copy # For monkey patch if needed
+import io   # For monkey patch if needed
+import base64 # For monkey patch if needed
+import os # Keep for getenv potentially used elsewhere
 from typing import Any # Keep for monkey-patch type hint
 
 # --- Configuration and Setup ---
@@ -35,6 +34,7 @@ initialize_session_state()
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
 # --- Check/Apply Monkey Patch (Important for st_canvas) ---
+# (Keep the monkey-patch logic as is)
 try: from PIL import Image; PIL_AVAILABLE = True
 except ImportError: PIL_AVAILABLE = False; Image = None
 import streamlit.elements.image as st_image
@@ -70,10 +70,10 @@ handle_file_upload(uploaded_file)
 st.markdown("---"); st.title("⚕️ RadVision AI Advanced: AI-Assisted Image Analysis")
 with st.expander("User Guide & Disclaimer", expanded=False):
     st.warning("⚠️ **Disclaimer**: For research/educational use ONLY. NOT medical advice.")
-    st.markdown("""**Workflow:** 1.Upload 2.(DICOM) W/L 3.(Optional) ROI 4.AI Actions 5.Explore Tabs 6.UMLS Lookup 7.Translate 8.Confidence 9.Report""") # Shortened Guide
+    st.markdown("""**Workflow:** 1.Upload 2.(DICOM) W/L 3.(Optional) ROI 4.AI Actions 5.Explore Tabs 6.UMLS Lookup 7.Translate 8.Confidence 9.Report""")
 st.markdown("---")
-col1, col2 = st.columns([2, 3]) # Define main columns
-render_main_content(col1, col2) # Render viewer and results tabs
+col1, col2 = st.columns([2, 3])
+render_main_content(col1, col2) # Renders viewer and results tabs
 
 # --- Handle Actions ---
 current_action = st.session_state.get("last_action")
