@@ -175,3 +175,4 @@ current_session = st.session_state.get("session_id", "N/A")
 st.caption(f"{APP_ICON} {APP_TITLE} | Session ID: {current_session}")
 st.markdown(FOOTER_MARKDOWN, unsafe_allow_html=True)
 logger.info(f"--- Render complete – Session ID: {current_session} ---")
+
