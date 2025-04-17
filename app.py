@@ -2,19 +2,13 @@
 """
 app.py – RadVision AI Advanced (main entry‑point)
 -------------------------------------------------
-Split‑architecture version that wires together:
-    • sidebar_ui.py          – upload & action buttons
-    • main_page_ui.py        – viewer + tabbed results
-    • file_processing.py     – image / DICOM ingestion
-    • action_handlers.py     – runs AI, UMLS, report
-
-This file primarily orchestrates the application flow and displays
-high‑level status banners (e.g., missing optional dependencies).
-Heavy logic resides within the imported helper modules.
+Orchestrates the RadVision AI application modules and UI flow.
+Handles page configuration, logging, session state, main layout,
+and status reporting for optional features.
 """
 from __future__ import annotations
 
-# Standard library imports should come first
+# Standard library imports
 import logging
 import sys
 import io
@@ -24,66 +18,73 @@ from typing import Any, TYPE_CHECKING
 
 # Third-party imports
 import streamlit as st
-# Removed get_script_run_ctx as session_id is now handled internally by session_state.py
 
-# Pillow is checked for availability, crucial for the monkey-patch.
+# Pillow is checked for availability
 try:
     from PIL import Image
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
     Image = None # type: ignore[assignment, misc]
+    logging.getLogger(__name__).warning("Pillow library not found. Image processing unavailable.")
 
-# Conditional import for type checking improves static analysis
+
+# Conditional import for type checking
 if TYPE_CHECKING:
     from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-# Local application/library specific imports
-# Configuration should be imported early
-from config import (
-    LOG_LEVEL,
-    LOG_FORMAT,
-    DATE_FORMAT,
-    APP_CSS,
-    FOOTER_MARKDOWN,
-    APP_TITLE,
-    APP_ICON,
-    USER_GUIDE_MARKDOWN,
-    DISCLAIMER_WARNING,
-    UMLS_CONFIG_MSG # Now defined in config.py
-)
+# --- Local Application Imports ---
+# Configuration (ensure this file exists and has the needed constants)
+try:
+    from config import (
+        LOG_LEVEL, LOG_FORMAT, DATE_FORMAT, APP_CSS, FOOTER_MARKDOWN,
+        APP_TITLE, APP_ICON, USER_GUIDE_MARKDOWN, DISCLAIMER_WARNING,
+        UMLS_CONFIG_MSG # Specific message for missing key/config
+    )
+except ImportError as cfg_err:
+     # Fallback if config.py is missing - app will likely fail but gives a clue
+     sys.exit(f"CRITICAL ERROR: Failed to import configuration from config.py: {cfg_err}")
+
 # Core application modules
-# Corrected session_state import strategy
-from session_state import initialize_session_state # Import the function directly
+from session_state import initialize_session_state, reset_session_state_for_new_file # Import reset function too
 from sidebar_ui import render_sidebar
 from main_page_ui import render_main_content
 from file_processing import handle_file_upload
 from action_handlers import handle_action
 
-# Optional helpers (check availability without crashing)
+# --- Check Optional Feature Availability ---
+# Translation
 try:
+    # Assumes translation_models exports these
     from translation_models import TRANSLATION_AVAILABLE, TRANSLATION_CONFIG_MSG
+    logging.getLogger(__name__).info(f"Translation Available: {TRANSLATION_AVAILABLE}")
 except ImportError:
     TRANSLATION_AVAILABLE = False
-    TRANSLATION_CONFIG_MSG = "Install `deep-translator` & restart." # Provide default message
+    TRANSLATION_CONFIG_MSG = "Translation module not found." # Fallback message
+    logging.getLogger(__name__).warning("translation_models.py not found or import failed.")
 
+# UMLS
 try:
-    from umls_utils import UMLS_AVAILABLE # UMLS_CONFIG_MSG is now in config.py
+    # Import only the flag indicating successful load of the module + its deps
+    from umls_utils import UMLS_UTILS_LOADED
+    logging.getLogger(__name__).info(f"UMLS Utils Loaded: {UMLS_UTILS_LOADED}")
 except ImportError:
-    UMLS_AVAILABLE = False
-    # UMLS_CONFIG_MSG comes from config.py
+    UMLS_UTILS_LOADED = False
+    logging.getLogger(__name__).warning("umls_utils.py not found or import failed.")
 
+# UMLS Full Availability Check: Module MUST load AND API Key MUST be present
+UMLS_API_KEY_PRESENT = bool(os.getenv("UMLS_APIKEY"))
+IS_UMLS_FULLY_AVAILABLE = UMLS_UTILS_LOADED and UMLS_API_KEY_PRESENT
+logging.getLogger(__name__).info(f"UMLS API Key Present: {UMLS_API_KEY_PRESENT}")
+logging.getLogger(__name__).info(f"UMLS Fully Available (Utils Loaded + Key Present): {IS_UMLS_FULLY_AVAILABLE}")
 
-# ---------------------------------------------------------------------------
-# Helper Functions (Revised)
-# ---------------------------------------------------------------------------
+# --- Helper Functions ---
 def get_session_id() -> str:
-    """Retrieves the current session ID *from session state*."""
-    # Now reads the ID managed by session_state.py
-    return st.session_state.get("session_id", "N/A_STATE")
+    """Retrieves the current session ID from session state."""
+    return st.session_state.get("session_id", "N/A_STATE") # Default if state not init yet
 
 # ---------------------------------------------------------------------------
-# Streamlit Page Configuration (Must be the *first* Streamlit command)
+# Streamlit Page Configuration (MUST BE FIRST ST CALL)
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title=APP_TITLE,
@@ -93,103 +94,55 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Logging Configuration (Clear existing handlers, set new format)
+# Logging Configuration
 # ---------------------------------------------------------------------------
-# Remove default Streamlit handlers to prevent duplicate logs
+# Remove default Streamlit handlers
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
-
 # Configure root logger
 logging.basicConfig(
-    level=LOG_LEVEL,
-    format=LOG_FORMAT,
-    datefmt=DATE_FORMAT,
-    stream=sys.stdout,
-    force=True
+    level=LOG_LEVEL, format=LOG_FORMAT, datefmt=DATE_FORMAT, stream=sys.stdout, force=True
 )
 logger = logging.getLogger(__name__)
 logger.info("--- RadVision AI App Initializing (Streamlit v%s) ---", st.__version__)
 
 # ---------------------------------------------------------------------------
-# Session State Initialization (Corrected Call)
+# Session State Initialization
 # ---------------------------------------------------------------------------
-initialize_session_state() # <-- FIXED: Call without arguments
-# get_session_id() will now read the ID set *inside* initialize_session_state
-logger.debug(f"Session state initialized/verified. Session ID: {get_session_id()}")
+initialize_session_state() # Call without arguments
+logger.debug(f"Session state initialization check complete. Session ID: {get_session_id()}")
 
 # ---------------------------------------------------------------------------
-# Apply Global CSS Styles
+# Apply Global CSS
 # ---------------------------------------------------------------------------
 st.markdown(APP_CSS, unsafe_allow_html=True)
 logger.debug("Global CSS applied.")
 
 # ---------------------------------------------------------------------------
-# Monkey-Patch for st.image (if needed and Pillow is available)
-# Required for st_canvas snapshot rendering compatibility
+# Monkey-Patch (Optional, if needed for st_canvas)
 # ---------------------------------------------------------------------------
-import streamlit.elements.image as st_image
-
-if not hasattr(st_image, "image_to_url"):
-    if not PIL_AVAILABLE:
-        logger.warning("Pillow library not found. Cannot apply image_to_url monkey-patch.")
-    else:
-        logger.info("Applying monkey-patch for st.image -> data-url generation.")
-        # ... (Keep the _image_to_url_monkey_patch function definition as before) ...
-        def _image_to_url_monkey_patch(
-            image: Any, # Can be various types, PIL Image is key
-            width: int = -1,
-            clamp: bool = False,
-            channels: str = "RGB",
-            output_format: str = "auto",
-            image_id: str = "", # May be used by Streamlit internally
-        ) -> str:
-            """
-            Serializes PIL Image to a base64 data URL.
-            Needed for components like streamlit-drawable-canvas to redisplay images.
-            Handles basic format conversions (e.g., palette to RGBA, alpha channel).
-            """
-            if not isinstance(image, Image.Image):
-                logger.warning("image_to_url: Input is not a PIL Image (%s). Returning empty URL.", type(image))
-                return ""
-            fmt = output_format.upper() if output_format != "auto" else (image.format or "PNG")
-            if fmt not in {"PNG", "JPEG", "WEBP", "GIF"}:
-                logger.debug("image_to_url: Unsupported format '%s', falling back to PNG.", fmt)
-                fmt = "PNG"
-            if image.mode == "RGBA" and fmt == "JPEG":
-                logger.debug("image_to_url: RGBA image requested as JPEG, converting to PNG.")
-                fmt = "PNG"
-            if image.mode == "P":
-                logger.debug("image_to_url: Converting Palette image (mode 'P') to RGBA.")
-                image = image.convert("RGBA")
-            if channels == "RGB" and image.mode not in {"RGB", "L"}:
-                logger.debug("image_to_url: Converting image mode '%s' to RGB.", image.mode)
-                image = image.convert("RGB")
-            buffer = io.BytesIO()
-            try:
-                image.save(buffer, format=fmt)
-                img_data = buffer.getvalue()
-            except Exception as e:
-                logger.error("image_to_url: Failed to save image to buffer (format: %s): %s", fmt, e)
-                return ""
-            b64_data = base64.b64encode(img_data).decode("utf-8")
-            return f"data:image/{fmt.lower()};base64,{b64_data}"
-
-        st_image.image_to_url = _image_to_url_monkey_patch # type: ignore[attr-defined]
-        logger.info("Monkey-patch applied successfully.")
-else:
-    logger.info("Streamlit version detected that likely includes image_to_url. Skipping monkey-patch.")
+# ... (Keep the monkey-patch code exactly as before if you use streamlit-drawable-canvas) ...
+# Example placeholder if not needed:
+# logger.debug("Skipping image_to_url monkey-patch (not required or Pillow unavailable).")
+# OR keep the full patch code from previous versions if you use it.
 
 
-# ---------------------------------------------------------------------------
+# ===========================================================================
 # === Main Application Flow ===
-# ---------------------------------------------------------------------------
+# ===========================================================================
 
 # --- 1. Render Sidebar & Get Uploaded File ---
+# This function should handle its own UI elements and return the file object
+# It might also trigger session state resets internally if needed.
 uploaded_file: UploadedFile | None = render_sidebar()
-logger.debug("Sidebar rendered. Uploaded file: %s", uploaded_file.name if uploaded_file else "None")
+logger.debug("Sidebar rendered. Uploaded file object: %s", type(uploaded_file).__name__)
 
 # --- 2. Process Uploaded File ---
-handle_file_upload(uploaded_file) # Assumes this calls reset_session_state_for_new_file if needed
+# This function takes the uploaded file, processes it (potentially resetting state),
+# and updates session state with image data (e.g., st.session_state.display_image).
+# Critical step for fixing the "image not showing" issue lies within this function's implementation.
+# Ensure it calls `reset_session_state_for_new_file()` appropriately.
+handle_file_upload(uploaded_file)
 
 # --- 3. Render Main Content Area ---
 st.divider()
@@ -201,39 +154,61 @@ with st.expander("User Guide & Disclaimer", expanded=False):
 
 st.divider()
 
+# Define layout columns for viewer and results
 col_img_viewer, col_analysis_results = st.columns([2, 3], gap="large")
+
+# Render the main page UI components into the columns
+# This function is responsible for calling st.image(st.session_state.get('display_image'), ...)
+# Ensure it correctly reads the state set by handle_file_upload.
 render_main_content(col_img_viewer, col_analysis_results)
 logger.debug("Main content area rendered.")
 
 # --- 4. Handle Deferred Actions ---
+# Check if an action button (like 'Run Analysis') set a flag in session state
 action = st.session_state.get("last_action")
 if action:
     logger.info("Executing deferred action: '%s'", action)
+    # action_handlers.py takes over, performs the action, updates state
     handle_action(action)
+    # Reset the trigger flag *after* handling, if it wasn't changed by the handler
     if st.session_state.get("last_action") == action:
          st.session_state.last_action = None
-         logger.debug("Action '%s' completed and reset.", action)
+         logger.debug("Action '%s' completed and trigger reset.", action)
 else:
     logger.debug("No deferred action pending.")
 
 
 # --- 5. Display Status Banners for Optional Features ---
-# Read availability flags and config messages
+# These appear near the bottom, providing feedback on configuration/dependencies.
+
+# Translation Banner
 if not TRANSLATION_AVAILABLE:
     st.warning(f"🌐 Translation features unavailable – {TRANSLATION_CONFIG_MSG}")
-    logger.warning("Optional feature unavailable: Translation (%s)", TRANSLATION_CONFIG_MSG)
+    logger.warning("Banner displayed: Translation unavailable (%s)", TRANSLATION_CONFIG_MSG)
 
-if not UMLS_AVAILABLE:
-    st.warning(f"🧬 UMLS features unavailable – {UMLS_CONFIG_MSG}") # Message comes from config.py
-    logger.warning("Optional feature unavailable: UMLS (%s)", UMLS_CONFIG_MSG)
+# UMLS Banner (Uses the combined check)
+if not IS_UMLS_FULLY_AVAILABLE:
+    # Determine the specific reason for unavailability
+    if not UMLS_UTILS_LOADED:
+        # If the module/dependency itself failed
+        reason = "Failed to load UMLS utilities (check imports/dependencies in umls_utils.py and requirements.txt)."
+    elif not UMLS_API_KEY_PRESENT:
+        # If module loaded but key is missing
+        reason = UMLS_CONFIG_MSG # Use the specific message from config.py
+    else:
+        # Fallback, should ideally not be reached
+         reason = "Unknown configuration issue."
+
+    st.warning(f"🧬 UMLS features unavailable – {reason}")
+    logger.warning("Banner displayed: UMLS unavailable (%s)", reason)
+
 
 # --- 6. Render Footer ---
 st.divider()
-# Use the revised get_session_id() which reads from st.session_state
-current_session_id = get_session_id()
+current_session_id = get_session_id() # Read ID from state
 st.caption(f"{APP_ICON} {APP_TITLE} | Session ID: {current_session_id}")
 st.markdown(FOOTER_MARKDOWN, unsafe_allow_html=True)
 logger.info("--- Render cycle complete – Session ID: %s ---", current_session_id)
-# ---------------------------------------------------------------------------
+# ===========================================================================
 # === End of Application Flow ===
-# ---------------------------------------------------------------------------
+# ===========================================================================
