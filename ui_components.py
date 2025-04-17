@@ -1,95 +1,168 @@
 # -*- coding: utf-8 -*-
 """
-ui_components.py - Streamlit UI helper components for RadVision AI.
+ui_components.py - Streamlit UI Helper Components for RadVision AI
+==================================================================
 
-Provides functions for displaying DICOM metadata, creating W/L sliders,
-and showing UMLS concept search results.
+Provides reusable functions for creating specific UI elements within the
+Streamlit application, such as displaying DICOM metadata in a structured
+format, generating interactive Window/Level sliders for DICOM images,
+and presenting UMLS concept search results clearly.
 """
 
-import streamlit as st
+import logging
 from typing import Optional, Tuple, Dict, Any, List, Union
+
+import numpy as np
 import pydicom
 import pydicom.valuerep
-import numpy as np
-import logging
+import pydicom.multival
+import pydicom.uid
+import streamlit as st
 
-# --- Import UMLSConcept ---
-# Ensure umls_utils.py is accessible in the Python path
+# --- Dependency: UMLSConcept ---
+# Attempt to import from umls_utils. Handle gracefully if unavailable.
 try:
+    # Assuming umls_utils.py is structured to export UMLSConcept
     from umls_utils import UMLSConcept
-    UMLS_CONCEPT_IMPORTED = True
+    _UMLS_CONCEPT_IMPORTED = True
 except ImportError:
-    # Define a dummy class if import fails, so the function signature still works
-    # but the display function will show a warning.
-    class UMLSConcept:
-        def __init__(self, name="Import Error", ui="", uri="", rootSource=""):
+    # Define a dummy class if import fails. This allows function signatures
+    # using UMLSConcept to remain valid, preventing NameErrors elsewhere.
+    # The display function itself will check _UMLS_CONCEPT_IMPORTED.
+    class UMLSConcept: # type: ignore[no-redef]
+        """Dummy class if umls_utils.UMLSConcept cannot be imported."""
+        def __init__(self, name: str = "Import Error", ui: str = "", uri: str = "", rootSource: str = ""):
             self.name = name
             self.ui = ui
             self.uri = uri
             self.rootSource = rootSource
-    UMLS_CONCEPT_IMPORTED = False
-    logging.warning("Could not import UMLSConcept from umls_utils. UMLS display might be limited.")
 
+    _UMLS_CONCEPT_IMPORTED = False
+    logging.warning(
+        "Could not import UMLSConcept from umls_utils.py. "
+        "UMLS display functionality will be disabled or limited."
+    )
 
+# --- Logging Configuration ---
 logger = logging.getLogger(__name__)
 
-# --- DICOM Metadata Display ---
+# =============================================================================
+# DICOM Metadata Display Component
+# =============================================================================
 
 def display_dicom_metadata(metadata: Optional[Dict[str, Any]]) -> None:
     """
-    Displays formatted DICOM metadata in a Streamlit expander, arranged in two columns.
+    Displays formatted DICOM metadata within a Streamlit expander,
+    arranging the key-value pairs neatly into two columns.
 
     Args:
-        metadata: A dictionary containing extracted DICOM tag names and their values.
+        metadata: A dictionary where keys are DICOM tag names (str)
+                  and values are the extracted tag values (Any type).
+                  If None or empty, displays a placeholder message.
     """
+    # Expander provides a clean way to optionally view potentially long metadata
     with st.expander("View DICOM Metadata", expanded=False):
         if not metadata:
-            st.caption("No metadata extracted or available.")
+            st.caption("No DICOM metadata extracted or provided.")
             return
 
-        cols = st.columns(2)
+        logger.debug(f"Attempting to display {len(metadata)} DICOM metadata items.")
+        cols = st.columns(2)  # Use two columns for better layout
         col_idx = 0
-        logger.debug(f"Displaying {len(metadata)} metadata items.")
 
-        # Sort metadata alphabetically by key for consistent display
-        sorted_metadata = sorted(metadata.items())
+        # Sort metadata alphabetically by tag name for consistent order
+        try:
+            # Sorting might fail if keys are not consistently strings (unlikely)
+            sorted_metadata_items = sorted(metadata.items())
+        except Exception as sort_err:
+            logger.error(f"Failed to sort metadata keys: {sort_err}. Displaying unsorted.")
+            st.warning("Could not sort metadata items.")
+            sorted_metadata_items = metadata.items()
 
-        for key, value in sorted_metadata:
-            display_value = "N/A"
+
+        for key, value in sorted_metadata_items:
+            display_value = "N/A"  # Default display value
             try:
+                # Handle different potential value types from pydicom
                 if value is None:
-                    display_value = "N/A"
-                elif isinstance(value, list):
-                    # Handle lists, including potentially mixed types or PersonName objects
-                    display_value = ", ".join(
-                        str(v.original_string) if isinstance(v, pydicom.valuerep.PersonName) else str(v)
-                        for v in value
-                    )
+                    display_value = "_(empty)_"
+                elif isinstance(value, (list, pydicom.multival.MultiValue)):
+                    # Join list items, handling PersonName objects specifically
+                    str_values = []
+                    for v in value:
+                        if isinstance(v, pydicom.valuerep.PersonName):
+                            # Use formatted() for a standard representation, fallback to str()
+                            str_values.append(v.formatted("%L, %F %M") if hasattr(v, 'formatted') else str(v))
+                        else:
+                            str_values.append(str(v))
+                    display_value = "; ".join(str_values) # Use semicolon for multi-value clarity
                 elif isinstance(value, pydicom.uid.UID):
-                    display_value = f"{value.name} ({value})" # Show name and UID string
+                    # Show UID name (if known) and the UID value itself
+                    display_value = f"{value.name} ({value})"
                 elif isinstance(value, bytes):
-                    display_value = f"[Binary Data ({len(value)} bytes)]"
+                    # Indicate binary data without displaying it directly
+                    display_value = f"[Binary Data: {len(value)} bytes]"
                 elif isinstance(value, pydicom.valuerep.PersonName):
-                     # Use original_string for a simpler representation if available
-                    display_value = value.original_string if hasattr(value, 'original_string') else str(value)
-                elif isinstance(value, (pydicom.valuerep.DSfloat, pydicom.valuerep.IS)):
-                     display_value = str(value) # Ensure numeric types are strings
+                    display_value = value.formatted("%L, %F %M") if hasattr(v, 'formatted') else str(value)
+                elif isinstance(value, (pydicom.valuerep.DSfloat, pydicom.valuerep.DSdecimal, pydicom.valuerep.IS)):
+                    # Ensure numeric types represented as strings are correctly displayed
+                    display_value = str(value)
                 else:
+                    # General case: convert to string and remove leading/trailing whitespace
                     display_value = str(value).strip()
 
-                # Truncate very long values
-                if len(display_value) > 150:
-                    display_value = display_value[:147] + "..."
+                # Truncate excessively long values to keep UI clean
+                MAX_LEN = 150
+                if len(display_value) > MAX_LEN:
+                    display_value = display_value[:MAX_LEN - 3] + "..."
 
-            except Exception as e:
-                logger.warning(f"Error formatting metadata key '{key}' (Value: {value}): {e}", exc_info=False) # Less verbose logging
+            except Exception as fmt_err:
+                # Log formatting errors but don't crash the UI
+                logger.warning(
+                    f"Error formatting DICOM metadata key '{key}' (Type: {type(value)}): {fmt_err}",
+                    exc_info=False # Avoid full traceback unless debugging
+                )
                 display_value = "[Error formatting value]"
 
-            # Use markdown for better formatting control
-            cols[col_idx % 2].markdown(f"**{key}:** `{display_value}`")
-            col_idx += 1
+            # Use markdown for consistent styling (bold key, code-formatted value)
+            try:
+                 # Ensure key is string for markdown
+                safe_key = str(key)
+                cols[col_idx % 2].markdown(f"**{safe_key}:** `{display_value}`")
+                col_idx += 1
+            except Exception as md_err:
+                 logger.error(f"Failed to render markdown for key '{key}': {md_err}")
+                 cols[col_idx % 2].text(f"{key}: {display_value} (Render Error)")
+                 col_idx += 1
 
-# --- DICOM Window/Level Sliders ---
+# =============================================================================
+# DICOM Window/Level (W/L) Slider Component
+# =============================================================================
+
+def _safe_float_convert(value: Any, index: int = 0) -> Optional[float]:
+    """Safely converts DICOM numeric string types or lists thereof to float."""
+    target_value = value
+    if isinstance(value, (list, pydicom.multival.MultiValue)):
+        if len(value) > index:
+            target_value = value[index]
+        else:
+            logger.warning(f"Attempted to access index {index} in multi-value '{value}', but length is {len(value)}.")
+            return None # Index out of bounds for multi-value list
+
+    if target_value is None:
+        return None
+
+    try:
+        # Handle specific DICOM numeric representations
+        if isinstance(target_value, (pydicom.valuerep.DSfloat, pydicom.valuerep.DSdecimal)):
+            return float(target_value)
+        elif isinstance(target_value, pydicom.valuerep.IS): # Integer String
+            return float(int(target_value))
+        # General case: attempt direct float conversion
+        return float(target_value)
+    except (ValueError, TypeError) as e:
+        logger.debug(f"Could not convert DICOM value '{target_value}' (type: {type(target_value)}) to float: {e}", exc_info=False)
+        return None
 
 def dicom_wl_sliders(
     ds: Optional[pydicom.Dataset],
@@ -98,194 +171,228 @@ def dicom_wl_sliders(
 ) -> Tuple[Optional[float], Optional[float]]:
     """
     Creates Streamlit sliders for adjusting DICOM Window Center (Level) and Width.
-    Uses provided current values if available, otherwise calculates defaults from the dataset.
+
+    Calculates appropriate ranges and defaults based on the DICOM dataset,
+    considering pixel data range and Rescale Slope/Intercept if available.
+    Uses provided `current_wc` and `current_ww` from session state as initial
+    values if provided.
 
     Args:
-        ds: The pydicom Dataset object.
-        current_wc: The current window center value from session state (optional).
-        current_ww: The current window width value from session state (optional).
+        ds: The pydicom Dataset object. Must contain 'PixelData'.
+        current_wc: The current window center value (optional).
+        current_ww: The current window width value (optional).
 
     Returns:
-        A tuple containing the selected (or current) window center and window width.
+        A tuple containing the selected (float) window center and window width.
+        Returns (current_wc, current_ww) if sliders cannot be created (e.g., no dataset).
     """
-    # st.subheader("DICOM Window/Level Adjustment") # Removed subheader, place in calling code if needed
-
+    # --- Input Validation ---
     if ds is None or not hasattr(ds, 'PixelData'):
-        st.caption("W/L sliders unavailable: DICOM data missing.")
-        logger.warning("dicom_wl_sliders called with missing Dataset or PixelData.")
-        return current_wc, current_ww # Return current values if no dataset
+        # Display placeholder instead of sliders if data is missing
+        st.caption("ℹ️ W/L adjustment sliders require loaded DICOM pixel data.")
+        if ds is None:
+             logger.warning("dicom_wl_sliders called with ds=None.")
+        else:
+             logger.warning("dicom_wl_sliders called, but Dataset missing 'PixelData'.")
+        # Return the passed-in values as no change is possible
+        return current_wc, current_ww
 
+    # --- Calculate Pixel Data Range (considering Rescale Slope/Intercept) ---
     pixel_min: float = 0.0
-    pixel_max: float = 4095.0 # Default fallback range
+    pixel_max: float = 4095.0 # Default fallback range (common for 12-bit CT/MRI)
     data_range_calculated = False
 
     try:
         pixel_array = ds.pixel_array
-        # Prefer calculating range *after* applying rescale slope/intercept if present
-        if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
-            slope = float(ds.RescaleSlope)
-            intercept = float(ds.RescaleIntercept)
-            # Ensure calculations are done in float to avoid overflow/precision issues
-            rescaled_array = pixel_array.astype(np.float64) * slope + intercept
+        # Use float64 for calculations to prevent overflow/precision issues
+        pixel_array_float = pixel_array.astype(np.float64)
+
+        # Apply rescale slope/intercept if they exist and are valid numbers
+        slope = _safe_float_convert(ds.get("RescaleSlope"))
+        intercept = _safe_float_convert(ds.get("RescaleIntercept"))
+
+        if slope is not None and intercept is not None:
+            # Ensure slope is not zero to avoid division issues later if needed
+            slope = float(slope) if slope != 0 else 1.0
+            intercept = float(intercept)
+            rescaled_array = pixel_array_float * slope + intercept
             pixel_min = float(np.min(rescaled_array))
             pixel_max = float(np.max(rescaled_array))
             logger.debug(f"Applied Rescale Slope ({slope}) / Intercept ({intercept}). Calculated range: {pixel_min:.2f} - {pixel_max:.2f}")
-        else:
-            # If no rescale, use raw pixel values
-            pixel_min = float(np.min(pixel_array))
-            pixel_max = float(np.max(pixel_array))
-            logger.debug(f"No Rescale Slope/Intercept found. Using raw pixel range: {pixel_min:.2f} - {pixel_max:.2f}")
-
-        # Handle edge case of a constant image
-        if pixel_max == pixel_min:
-            logger.warning("Pixel data range is zero (constant image). Adjusting max range slightly.")
-            pixel_max += 1.0
-        data_range_calculated = True
-
-    except AttributeError:
-        st.caption("Warning: Could not access RescaleSlope/Intercept. Using default range.")
-        logger.warning("AttributeError accessing RescaleSlope/Intercept. Falling back.")
-        # Attempt range from raw pixels as fallback
-        try:
-            pixel_array = ds.pixel_array
-            pixel_min = float(np.min(pixel_array))
-            pixel_max = float(np.max(pixel_array))
-            if pixel_max == pixel_min: pixel_max += 1.0
             data_range_calculated = True
-        except Exception as fallback_e:
-             st.caption(f"Error calculating pixel range: {fallback_e}. Using default range [0-4095].")
-             logger.error(f"Error determining pixel range for sliders: {fallback_e}", exc_info=True)
+        else:
+            # If no rescale tags or they are invalid, use raw pixel values
+            pixel_min = float(np.min(pixel_array_float))
+            pixel_max = float(np.max(pixel_array_float))
+            logger.debug(f"Using raw pixel range (no valid Rescale Slope/Intercept): {pixel_min:.2f} - {pixel_max:.2f}")
+            data_range_calculated = True
+
+        # Handle edge case: image where all pixels have the same value
+        if pixel_max == pixel_min:
+            logger.warning("Pixel data range is zero (constant image detected). Adjusting max range slightly for slider.")
+            pixel_max += 1.0 # Add 1 to allow some width range
+
+    except AttributeError as ae:
+         # This might happen if tags like RescaleSlope exist but are invalid format
+         st.caption("⚠️ Warning: Could not access DICOM rescale tags correctly. Using raw pixel range.")
+         logger.warning(f"AttributeError accessing pixel data or rescale tags: {ae}. Falling back to raw range.")
+         # Attempt raw range as fallback
+         try:
+             pixel_min = float(np.min(ds.pixel_array.astype(np.float64)))
+             pixel_max = float(np.max(ds.pixel_array.astype(np.float64)))
+             if pixel_max == pixel_min: pixel_max += 1.0
+             data_range_calculated = True
+         except Exception as fallback_e:
+              st.caption(f"⚠️ Error calculating pixel range: {fallback_e}. Using default range [0-4095].")
+              logger.error(f"Error determining pixel range for sliders (fallback failed): {fallback_e}", exc_info=True)
+              # Reset to hardcoded defaults if all else fails
+              pixel_min, pixel_max = 0.0, 4095.0
+              data_range_calculated = False # Indicate failure
     except Exception as e:
-        st.caption(f"Error calculating pixel range: {e}. Using default range [0-4095].")
-        logger.error(f"Error determining pixel range for sliders: {e}", exc_info=True)
+        st.caption(f"⚠️ Error calculating pixel range: {e}. Using default range [0-4095].")
+        logger.error(f"Unexpected error determining pixel range for sliders: {e}", exc_info=True)
+        pixel_min, pixel_max = 0.0, 4095.0
+        data_range_calculated = False
+
+    data_dynamic_range = max(1.0, pixel_max - pixel_min) # Ensure range is at least 1.0
+
+    # --- Determine Initial W/L Values ---
+    # Use values from session state if valid, otherwise DICOM tags, otherwise calculate from range
+    wc_initial: float
+    ww_initial: float
+
+    if current_wc is not None:
+        wc_initial = float(current_wc)
+        logger.debug(f"Using provided current WC: {wc_initial:.2f}")
+    else:
+        wc_from_dicom = _safe_float_convert(ds.get("WindowCenter"))
+        if wc_from_dicom is not None:
+            wc_initial = wc_from_dicom
+            logger.debug(f"Using WC from DICOM tag: {wc_initial:.2f}")
+        else:
+            wc_initial = pixel_min + data_dynamic_range / 2.0 # Center of the calculated range
+            logger.debug(f"Calculated default WC from range: {wc_initial:.2f}")
+
+    if current_ww is not None:
+        ww_initial = max(1.0, float(current_ww)) # Ensure width >= 1
+        logger.debug(f"Using provided current WW: {ww_initial:.2f}")
+    else:
+        ww_from_dicom = _safe_float_convert(ds.get("WindowWidth"))
+        if ww_from_dicom is not None:
+            ww_initial = max(1.0, ww_from_dicom) # Ensure width >= 1
+            logger.debug(f"Using WW from DICOM tag: {ww_initial:.2f}")
+        else:
+            ww_initial = data_dynamic_range # Default width covers the full calculated range
+            logger.debug(f"Calculated default WW from range: {ww_initial:.2f}")
+
+    # --- Define Slider Properties (Min, Max, Step) ---
+    # Allow sliders to go slightly beyond the calculated data range for flexibility
+    margin = data_dynamic_range * 0.5 # Allow going 50% beyond calculated range
+    slider_min_level = pixel_min - margin
+    slider_max_level = pixel_max + margin
+
+    # Set a sensible max width (e.g., 2x data range), capped to avoid extreme values
+    slider_max_width = max(1.0, data_dynamic_range * 2.0)
+    slider_max_width = min(slider_max_width, 65535.0) # Absolute cap
+
+    # Determine step size based on range for finer control, ensure it's reasonable
+    step_size = max(0.01, round(data_dynamic_range / 2000.0, 2)) if data_dynamic_range > 0 else 1.0
+    # Ensure initial values are within the calculated slider bounds, clamp if necessary
+    wc_initial = max(slider_min_level, min(slider_max_level, wc_initial))
+    ww_initial = max(1.0, min(slider_max_width, ww_initial))
 
 
-    # --- Determine Default and Current W/L ---
-    def safe_float_convert(value: Any, index: int = 0) -> Optional[float]:
-        """Safely convert DICOM numeric values (potentially multi-value) to float."""
-        val_to_convert = value
-        if isinstance(value, (list, pydicom.multival.MultiValue)):
-            if len(value) > index:
-                val_to_convert = value[index]
-            else:
-                return None # Index out of bounds
-        try:
-            # Handle specific DICOM number string types if necessary
-            if isinstance(val_to_convert, (pydicom.valuerep.DSfloat, pydicom.valuerep.DSdecimal)):
-                 return float(val_to_convert)
-            elif isinstance(val_to_convert, pydicom.valuerep.IS):
-                 return float(int(val_to_convert)) # Convert IS (Integer String) to int first
-            return float(val_to_convert) if val_to_convert is not None else None
-        except (ValueError, TypeError, AttributeError):
-            logger.warning(f"Could not convert DICOM value '{value}' to float.", exc_info=False)
-            return None
+    # --- Create Sliders using st.slider ---
+    # Tooltips provide context about the data range
+    help_text = f"Data range ≈ [{pixel_min:.1f} – {pixel_max:.1f}] | Dynamic range ≈ {data_dynamic_range:.1f}"
 
-    # Use current values from state if provided and valid, otherwise calculate defaults
-    wc_to_use: Optional[float] = current_wc
-    ww_to_use: Optional[float] = current_ww
-
-    if wc_to_use is None:
-        wc_to_use = safe_float_convert(ds.get("WindowCenter"))
-        if wc_to_use is None and data_range_calculated:
-             wc_to_use = (pixel_max + pixel_min) / 2.0
-        elif wc_to_use is None: # Absolute fallback if range calc failed
-             wc_to_use = 2048.0
-        logger.debug(f"Calculated default WC: {wc_to_use}")
-
-
-    if ww_to_use is None:
-        ww_to_use = safe_float_convert(ds.get("WindowWidth"))
-        if ww_to_use is None and data_range_calculated:
-             ww_to_use = max(1.0, (pixel_max - pixel_min)) # Default width covers the whole range
-        elif ww_to_use is None: # Absolute fallback
-             ww_to_use = 4096.0
-        logger.debug(f"Calculated default WW: {ww_to_use}")
-
-    # Ensure defaults are at least 1.0 for width
-    ww_to_use = max(1.0, ww_to_use) if ww_to_use is not None else 1.0
-
-    # --- Define Slider Ranges ---
-    data_dynamic_range = pixel_max - pixel_min if data_range_calculated else 4095.0
-    # Allow sliders to go a bit beyond the calculated min/max
-    slider_min_level = pixel_min - data_dynamic_range * 0.25 if data_range_calculated else -1024.0
-    slider_max_level = pixel_max + data_dynamic_range * 0.25 if data_range_calculated else 5120.0
-    # Set a reasonable max width, avoiding excessively large values
-    slider_max_width = max(1.0, data_dynamic_range * 2.0) if data_range_calculated else 8192.0
-    slider_max_width = min(slider_max_width, 65536.0) # Cap maximum width
-
-
-    # Use a smaller step for finer control, related to the data range
-    step_size = max(0.1, data_dynamic_range / 2000.0) if data_range_calculated and data_dynamic_range > 0 else 1.0
-
-    # --- Create Sliders ---
     selected_wc = st.slider(
-        "Window Center (Level)",
+        label="Window Center (Level)",
         min_value=slider_min_level,
         max_value=slider_max_level,
-        value=float(wc_to_use), # Ensure value is float for slider
+        value=wc_initial,
         step=step_size,
-        key="dicom_wc_slider",
-        help=f"Adjust brightness center. Data range approx: [{pixel_min:.1f} - {pixel_max:.1f}]"
+        key="dicom_wc_slider", # Unique key for session state
+        help=f"Adjusts image brightness. {help_text}"
     )
     selected_ww = st.slider(
-        "Window Width",
-        min_value=1.0, # Width must be at least 1
+        label="Window Width",
+        min_value=1.0, # Width must be positive
         max_value=slider_max_width,
-        value=float(ww_to_use), # Ensure value is float
+        value=ww_initial,
         step=step_size,
-        key="dicom_ww_slider",
-        help=f"Adjust contrast range. Data range approx: {data_dynamic_range:.1f}"
+        key="dicom_ww_slider", # Unique key for session state
+        help=f"Adjusts image contrast. {help_text}"
     )
 
-    # Reset button logic remains outside this function, handled by session state/rerun in app.py
-
-    # Return the values selected by the user on the sliders
+    # Return the current values from the sliders
     return float(selected_wc), float(selected_ww)
 
+# =============================================================================
+# UMLS Concept Display Component
+# =============================================================================
 
-# --- UMLS Concepts Display ---
-
-def display_umls_concepts(concepts: Optional[List[UMLSConcept]]) -> None:
+def display_umls_concepts(concepts: Optional[List[UMLSConcept]], search_term: Optional[str] = None) -> None:
     """
-    Displays a list of standardized UMLS concepts in an expandable panel.
-    Uses the UMLSConcept dataclass imported from umls_utils.
+    Displays a list of UMLS concepts in a structured format within an expander.
 
     Args:
-        concepts: A list of UMLSConcept dataclass instances, or None.
+        concepts: A list of UMLSConcept objects (or None/empty).
+        search_term: The term used for the search (optional, for context).
     """
-    # Title moved outside expander for visibility
-    st.subheader("📚 UMLS Concept Results")
-    with st.expander("View Details", expanded=True): # Expand by default if results exist
-        if not UMLS_CONCEPT_IMPORTED:
-             st.warning("UMLS display unavailable: Could not import `UMLSConcept` from `umls_utils.py`.")
-             return
+    # Add a subheader for context, visible even when collapsed
+    st.subheader("📚 UMLS Concept Lookup Results")
+
+    # Default to expanded if there are concepts, otherwise collapsed
+    expanded_default = bool(concepts)
+
+    with st.expander("View Concept Details", expanded=expanded_default):
+        if not _UMLS_CONCEPT_IMPORTED:
+            # Show warning if the necessary class couldn't be imported
+            st.warning(
+                "UMLS display unavailable: Could not import `UMLSConcept` from `umls_utils.py`. "
+                "Ensure the file exists and dependencies are installed."
+            )
+            return
 
         if concepts is None:
-            st.caption("Perform a UMLS search to see results here.")
+            # Placeholder if no search has been performed yet
+            st.caption("Perform a UMLS search or analysis to see mapped concepts here.")
             return
 
         if not concepts:
-            st.info("No UMLS concepts found for the search term.")
+            # Message if search was done but yielded no results
+            search_context = f" for '{search_term}'" if search_term else ""
+            st.info(f"No UMLS concepts found{search_context}.")
             return
 
+        # Confirmation message with count
+        search_context = f" for '{search_term}'" if search_term else ""
+        st.success(f"Found {len(concepts)} UMLS concept(s){search_context}:")
         logger.debug(f"Displaying {len(concepts)} UMLS concepts.")
-        st.success(f"Found {len(concepts)} UMLS concept(s):")
 
+        # Iterate and display each concept
         for i, concept in enumerate(concepts):
-            # Ensure we have a valid UMLSConcept object
+            # Type check for safety, especially relevant if import failed/dummy used
             if not isinstance(concept, UMLSConcept):
-                st.warning(f"Item {i+1} is not a valid UMLSConcept object. Skipping.")
+                st.warning(f"Skipping invalid item #{i+1} in concepts list (expected UMLSConcept, got {type(concept).__name__}).")
                 logger.warning(f"Invalid object type found in concepts list: {type(concept)}")
                 continue
 
-            # Format the output using markdown for links and code formatting
-            st.markdown(f"**{concept.name}**")
-            st.markdown(f"    CUI: `{concept.ui}`") # Indent details
-            st.markdown(f"    Source: `{concept.rootSource}`")
-            if concept.uri:
-                st.markdown(f"    URI: [{concept.uri}]({concept.uri})")
-            if concept.uriLabel: # Display label if available
-                 st.markdown(f"    URI Label: `{concept.uriLabel}`")
+            # Use markdown for rich formatting (bolding, links, code style)
+            col1, col2 = st.columns([3, 1]) # Layout for name and source/CUI
+            with col1:
+                 # Display name as bold, make it a link if URI exists
+                 name_display = f"**[{concept.name}]({concept.uri})**" if concept.uri else f"**{concept.name}**"
+                 st.markdown(name_display, unsafe_allow_html=True) # Allow HTML for potential link target
+            with col2:
+                 # Display Source and CUI more compactly
+                 st.markdown(f"`{concept.rootSource}` | `{concept.ui}`", unsafe_allow_html=True)
 
+            # Display URI label if available
+            # if concept.uriLabel:
+            #      st.markdown(f"    *Label:* `{concept.uriLabel}`", unsafe_allow_html=True)
+
+            # Add a divider between concepts for readability, except after the last one
             if i < len(concepts) - 1:
-                st.markdown("---") # Add separator between concepts
+                st.divider() # Use Streamlit's built-in divider
