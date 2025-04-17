@@ -10,188 +10,225 @@ pinned: false
 short_description: Medical Image diagnostic
 license: mit
 ---
-# RadVision AI Advanced
+RadVision AI Advanced
 
-RadVision AI Advanced is a cutting‑edge, Streamlit‑based medical imaging analysis application designed to assist clinicians and researchers with rapid, AI‑powered interpretation of both DICOM and standard image formats. The tool integrates advanced image processing, region‑of‑interest (ROI) selection, and multiple AI services—including language models for analysis, Q&A, and disease‑specific evaluations—to generate detailed reports and insights on medical images.
+RadVision AI Advanced is a Streamlit-based medical imaging analysis application designed to assist clinicians and researchers with rapid, AI-powered interpretation of DICOM and standard image formats. With integrated multi-modal AI analysis, translation, and standardized terminology mapping via UMLS, this tool streamlines diagnostics and reporting workflows.
 
----
+Table of Contents
 
-## Table of Contents
+Overview
 
-- [Overview](#overview)
-- [Features](#features)
-- [File Structure](#file-structure)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running the Application](#running-the-application)
-- [Usage Guide](#usage-guide)
-- [Contributing](#contributing)
-- [License](#license)
-- [Configuration Reference](#configuration-reference)
+Features
 
-## Overview
+File Structure
 
-RadVision AI Advanced leverages state‑of‑the‑art AI models to process and analyze medical images. The application supports both DICOM files and common image formats (JPG, PNG) and provides a user‑friendly, interactive interface. Key capabilities include:
+Installation
 
-- **Multi‑Format Image Processing:** Automatic detection and handling of DICOM images as well as standard image formats.
-- **ROI Selection:** Users can draw regions of interest on images using an integrated drawable canvas.
-- **Multi‑Modal AI Analysis:** Provides initial analyses, interactive Q&A sessions, disease‑specific evaluations, and confidence estimations.
-- **PDF Report Generation:** Summarizes analysis outputs in a downloadable PDF report.
-- **Advanced Translation Functionality:** Uses the deep‑translator library with a Google Translate backend to detect and translate analysis text into multiple languages, preserving the original formatting (bullet points, numbering, spacing).
+Configuration
 
-> **Note:** This application is intended for research and educational use only. Always verify results with clinical experts.
+Running the Application
 
-## Features
+Usage Guide
 
-### Image Processing
+UMLS Feature Enhancements
 
-- **DICOM Support:** Parse DICOM files and extract metadata.
-- **Window/Level Adjustment:** Interactive sliders to optimize image visualization.
-- **Standard Image Processing:** Utilizes the Python Imaging Library (PIL) for common image formats.
+Contributing
 
-### AI Integration
+License
 
-- **Initial Analysis:** Automated interpretation of the uploaded image.
-- **Q&A Interface:** Enables users to ask questions about the image with region‑of‑interest support.
-- **Disease‑Specific Evaluation:** Focused analysis for conditions such as pneumonia, tuberculosis, etc.
-- **Confidence Estimation:** Provides an AI‑generated confidence score for the analysis.
-- **Fallback Mechanisms:** Uses external models (e.g., Hugging Face VQA APIs) when primary methods fail.
+Overview
 
-### Translation & Language Detection
+RadVision AI Advanced leverages state-of-the-art AI models and clinical knowledge sources to:
 
-- **Translation Module:** Implements translation using the deep‑translator library (Google Translate backend) with robust dependency checks and workarounds for known issues.
-- **Language Detection:** Detects the language of provided text snippets before translation.
-- **Formatting Preservation:** Uses a few‑shot prompt with examples to ensure bullet points, numbering, and spacing are preserved in the translation.
+Process medical images (DICOM, PNG, JPG)
 
-### Reporting
+Perform initial and condition-specific analyses
 
-- **PDF Report Generation:** Generates downloadable PDF reports that include embedded images, session IDs, and formatted text summaries.
+Enable interactive Q&A with context
 
-### User Interface
+Estimate model confidence
 
-- **Streamlit‑Based Layout:** Clean two‑column design.
-  - **Left Panel:** Image viewer with ROI selection and DICOM metadata.
-  - **Right Panel:** Analysis results, Q&A history, condition evaluation, confidence estimation, translation features, and UMLS concept display.
+Translate findings
 
-## File Structure
+Map key terms to standardized medical concepts (UMLS, SNOMED CT, ICD-10)
 
-```plaintext
+Generate comprehensive PDF reports
+
+Disclaimer: For research and educational use only. Always verify AI outputs with qualified clinical experts.
+
+Features
+
+Multi-Format Image Processing: Automatic support for DICOM metadata, window/level adjustment, and common image formats.
+
+Drawable ROI Canvas: Focus AI analysis on user-selected regions of interest.
+
+Initial Analysis: Automated, structured interpretation of image findings.
+
+Contextual Q&A: Ask follow-up questions with full conversation history.
+
+Condition-Focused Evaluation: Disease-specific analyses (e.g., pneumonia, tuberculosis).
+
+AI Confidence Estimation: Numerical and qualitative confidence scoring.
+
+Translation Module: Detect and translate AI text outputs while preserving formatting.
+
+PDF Report Generation: Downloadable reports with embedded images, analyses, UMLS mappings, and medical codes.
+
+UMLS Lookup & Auto-Enrichment: Standardized terminology support and interactive concept exploration.
+
+File Structure
+
 radvisionai/
-├── app.py                  # Main Streamlit application entry point.
-├── dicom_utils.py          # DICOM parsing, metadata extraction, and image conversion functions.
-├── hf_models.py            # Integration with external VQA models (e.g., Hugging Face) as a fallback.
-├── llm_interactions.py     # Functions for interfacing with language models for analysis and Q&A, with UMLS mapping.
-├── report_utils.py         # Functions to generate PDF reports for analysis sessions, including UMLS concepts.
-├── ui_components.py        # Helper functions for UI elements (e.g., metadata display, window/level sliders, UMLS concept panel).
-├── translation_models.py   # Translation and language detection using deep‑translator (Google Translate backend).
-├── umls_utils.py           # Utilities for UMLS API integration and concept retrieval.
-├── requirements.txt        # List of Python dependencies.
-└── README.md               # Project documentation.
-```
+├── app.py                  # Main Streamlit application
+├── action_handlers.py      # Handles mapping of UI actions to backend functions
+├── config.py               # Central config (API keys, model names, UMLS settings)
+├── dicom_utils.py          # DICOM parsing & image conversion
+├── file_processing.py      # File hashing & caching utilities
+├── hf_models.py            # Hugging Face VQA fallback integration
+├── llm_interactions.py     # LLM prompts, UMLS mapping, analysis functions
+├── main_page_ui.py         # Refactored main UI components for Streamlit
+├── report_utils.py         # PDF report generation with UMLS/SNOMED/ICD sections
+├── requirements.txt        # Python dependencies
+├── session_state.py        # Streamlit session-state initialization
+├── sidebar_ui.py           # Refactored sidebar controls (upload, ROI, actions)
+├── test_translation.py     # Unit tests for translation features
+├── translation_models.py   # deep-translator integration
+├── ui_components.py        # Streamlit UI helpers & UMLS concept display
+└── umls_utils.py           # UMLS REST API client & concept dataclass
 
-## Installation
+Installation
 
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/yourusername/radvision-ai-advanced.git
-   cd radvision-ai-advanced
-   ```
-2. **Create a Virtual Environment (Optional but Recommended)**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-3. **Install Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+Clone the repository
 
-Ensure you have the required libraries such as Streamlit, Pillow, pydicom, deep-translator, fpdf2, transformers, scispacy, and requests installed.
+
+
+git clone https://github.com/yourusername/radvision-ai-advanced.git
+cd radvision-ai-advanced
+
+2. **(Optional) Create a virtual environment**
+   ```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+Install dependencies
+
+
+
+pip install -r requirements.txt
+
+
+Ensure these core packages are installed:
+- streamlit >= 1.44.1
+- Pillow
+- pydicom
+- deep-translator
+- fpdf2
+- requests
+- spacy, scispacy (for advanced UMLS filtering)
 
 ## Configuration
 
-Before running the application, configure the following environment variables or add them to a `secrets.toml` / `.env` file:
+Before running the app, set environment variables (or add them to `.env` / `secrets.toml`):
 
-- `HF_API_TOKEN`  
-  Your Hugging Face API token for VQA fallback.
-
-- `GEMINI_API_KEY`  
-  API key for the Gemini language‑model service.
-
-- `GEMINI_MODEL_OVERRIDE` *(Optional)*  
-  Override for the default Gemini model name (e.g., `"gemini-2.5-pro-exp-03-25"`).
-
-### UMLS Integration *(New)*
-
-To enable standardized terminology mapping in both the Streamlit UI and generated PDF reports:
-
-- `UMLS_APIKEY`  
-  Your UMLS REST API key (from https://uts.nlm.nih.gov/).
-
-- `UMLS_HITS` *(Optional)*  
-  Number of top UMLS concepts to retrieve per response. Defaults to `3`.
-
-- `UMLS_SOURCE_FILTER` *(Optional)*  
-  Comma‑separated list of preferred source vocabularies (e.g., `SNOMEDCT_US,ICD10CM`). If empty, all sources are allowed.
-
-**Example `.env`:**
 ```dotenv
-HF_API_TOKEN=hf_xxx
-GEMINI_API_KEY=ya29.xxx
-UMLS_APIKEY=YOUR_UMLS_KEY
-UMLS_HITS=5
-UMLS_SOURCE_FILTER=SNOMEDCT_US,ICD10CM
-```
+HF_API_TOKEN=<your Hugging Face token>
+GEMINI_API_KEY=<your Google Gemini API key>
+GEMINI_MODEL_OVERRIDE=<optional model override>
 
-Once set, every AI output will include a “Standardized UMLS Concepts” panel in the app **and** a corresponding section in the PDF report.
+# UMLS Integration
+UMLS_APIKEY=<your UMLS REST API key>
+UMLS_HITS=5                # Number of concepts to fetch
+UMLS_SOURCE_FILTER=SNOMEDCT_US,ICD10CM  # Comma-separated filter (optional)
 
-## Running the Application
+HF_API_TOKEN: For Hugging Face VQA fallback.
 
-To start the application locally:
+GEMINI_API_KEY: For primary LLM vision calls.
 
-```bash
+UMLS_APIKEY: To enable standardized terminology mapping.
+
+UMLS_HITS: Controls number of UMLS concepts per result.
+
+UMLS_SOURCE_FILTER: Restrict to specific vocabularies.
+
+Running the Application
+
+Launch the Streamlit app:
+
 streamlit run app.py
-```
 
-The app will open in your default browser. From there, you can upload images, adjust DICOM settings, perform AI analysis, access translation features, view UMLS concepts, and generate PDF reports.
+The application will open in your default browser.
 
-## Usage Guide
+Usage Guide
 
-### Upload an Image
+Upload an Image: DICOM (.dcm) or standard (JPG/PNG).
 
-Use the sidebar to upload a JPG, PNG, or DICOM file.
+Adjust DICOM Window/Level: If applicable.
 
-### Adjust DICOM Settings
+Draw ROI: Use the canvas to focus AI on a region.
 
-For DICOM images, use interactive window/level sliders to optimize visualization.
+AI Analysis: Use sidebar actions:
 
-### Run AI Analysis
+▶️ Run Initial Analysis
 
-Click the action buttons (e.g., “Run Initial Analysis”, “Ask AI”, “Run Condition Analysis”) in the sidebar. Optionally, draw an ROI on the image.
+💬 Ask Question
 
-### View UMLS Concepts
+🩺 Analyze Condition
 
-In the analysis output, expand the “Standardized UMLS Concepts” panel to see mapped concepts with clickable links.
+📈 Estimate AI Confidence
 
-### Translation Functionality
+📄 Generate PDF Report
 
-In the Translation tab, select the text to translate (e.g., “Initial Analysis”).
+Translation: Switch to the Translation tab, select text, choose languages, and translate.
 
-Choose “Auto‑Detect” for the source language (or select a language manually) and choose a target language.
+Review UMLS Concepts:
 
-### Generate a Report
+Auto-Enrichment: Under each AI results tab, view standardized concepts.
 
-Use the “Generate PDF Report” button to create a downloadable PDF summarizing your session, including UMLS mappings.
+Lookup Tab: Ad-hoc UMLS searches in the 🧬 UMLS Lookup tab.
 
-## Contributing
+Download Report: PDF with embedded images, analyses, UMLS concepts, SNOMED CT, and ICD-10 codes.
 
-Contributions are welcome! Please submit pull requests or open issues for bug fixes, improvements, or new features. Follow standard coding practices and document your changes.
+UMLS Feature Enhancements
 
-## License
+Feature
 
-This project is open source and available under the MIT License.
+Description
 
-## Configuration Reference
+🔍 UMLS Concept Search Bar
 
-For advanced configuration options for Hugging Face Spaces and similar deployment scenarios, please refer to the Hugging Face Spaces configuration reference.
+Interactive tab: search terms (e.g., “COPD”) → view definitions, synonyms, SNOMED CT/ICD-10 mappings, RxNorm.
+
+💡 Auto-Enrich AI Outputs
+
+AI responses auto-annotated with clickable UMLS concept links.
+
+🧠 Synonym Expansion for Q&A
+
+Synonym detection maps user queries to same UMLS concept for robust Q&A.
+
+📚 Clinical Guidelines Integration
+
+From UMLS concept, link out to PubMed/guidelines pages for treatment recommendations.
+
+🏷️ Smart PDF Report
+
+Annotated PDF: lists SNOMED CT and ICD-10 codes for each detected concept.
+
+Tools & APIs
+
+UMLS REST API (NLM): Metathesaurus searches & concept metadata.
+
+QuickUMLS (optional): Local fuzzy matching for speed.
+
+Metathesaurus: Vocabularies integration.
+
+RxNorm API: Map drug-related concepts to RxNorm codes.
+
+Contributing
+
+Contributions welcome! Please submit issues and pull requests. Follow project style, include tests, and update documentation.
+
+License
+
+MIT License. See LICENSE for details.
 
