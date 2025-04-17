@@ -4,11 +4,12 @@ app.py - Main Streamlit application for RadVision AI Advanced.
 
 Handles image uploading (DICOM, JPG, PNG), display, ROI selection,
 interaction with AI models for analysis and Q&A, translation,
-and report generation.
+and report generation. Incorporates UMLS term lookup.
 
 IMPORTANT CHANGES:
 - Ensured 'deep-translator' is installed on-the-fly if needed.
 - Removed extra warnings about 'deep-translator' not found unless fallback also fails.
+- Added UMLS lookup functionality using umls_utils.py.
 """
 
 import streamlit as st
@@ -194,6 +195,32 @@ except ImportError as e:
     LANGUAGE_CODES = {"English": "en"}
     AUTO_DETECT_INDICATOR = "Auto-Detect"
 
+# --- UMLS Integration ---
+try:
+    import umls_utils
+    from umls_utils import UMLSAuthError, UMLSConcept
+    UMLS_APIKEY = os.getenv("UMLS_APIKEY")
+    if not UMLS_APIKEY:
+        logger.warning("UMLS_APIKEY environment variable not set. UMLS features will be disabled.")
+        UMLS_AVAILABLE = False
+    else:
+        logger.info("umls_utils imported successfully and UMLS_APIKEY found.")
+        UMLS_AVAILABLE = True
+except ImportError as e:
+    logger.error(f"Failed to import umls_utils: {e}. UMLS features disabled.")
+    UMLS_AVAILABLE = False
+    umls_utils = None
+    UMLSAuthError = None
+    UMLSConcept = None
+    UMLS_APIKEY = None
+except Exception as e:
+    logger.error(f"Error during UMLS setup: {e}", exc_info=True)
+    UMLS_AVAILABLE = False
+    umls_utils = None
+    UMLSAuthError = None
+    UMLSConcept = None
+    UMLS_APIKEY = None
+
 # --- Custom CSS for Polished Look & Tab Scrolling ---
 st.markdown(
     """
@@ -292,6 +319,9 @@ DEFAULT_STATE = {
     "demo_loaded": False,
     "translation_result": None,
     "translation_error": None,
+    "umls_search_term": "",  # Added for UMLS
+    "umls_results": None,     # Added for UMLS
+    "umls_error": None,       # Added for UMLS
 }
 
 for key, value in DEFAULT_STATE.items():
@@ -362,6 +392,7 @@ with st.sidebar:
         "Tip: Generate a PDF report to document the AI findings and your interaction.",
         "Tip: Use the 'Translation' tab to understand findings in different languages.",
         "Tip: Clear the ROI using the button if you want the AI to consider the entire image again.",
+        "Tip: Use the 'UMLS Lookup' tab to find standardized concepts for medical terms.", # Added Tip
     ]
     st.info(f"💡 {random.choice(TIPS)}")
     st.markdown("---")
@@ -514,10 +545,20 @@ if uploaded_file is not None:
         st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
 
         keys_to_preserve = {"file_uploader_widget", "session_id", "uploaded_file_info", "demo_loaded"}
-        st.session_state.session_id = str(uuid.uuid4())[:8]
+        # Preserve UMLS state across uploads unless we decide otherwise
+        keys_to_preserve.add("umls_search_term")
+        keys_to_preserve.add("umls_results")
+        keys_to_preserve.add("umls_error")
+
+        # Reset most state, but keep the session ID and preserved keys
+        # session_id = st.session_state.session_id # Keep current session ID
+        preserved_values = {k: st.session_state.get(k) for k in keys_to_preserve}
         for key, value in DEFAULT_STATE.items():
             if key not in keys_to_preserve:
-                st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
+                 st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
+        # Restore preserved values
+        for k, v in preserved_values.items():
+            st.session_state[k] = v
 
         st.session_state.uploaded_file_info = new_file_info
         st.session_state.demo_loaded = False
@@ -598,9 +639,7 @@ if uploaded_file is not None:
                 st.session_state.is_dicom = False
 
 # --- Display Uploaded Image (Minimal Addition) ---
-# If an image has been processed, immediately display it.
-if st.session_state.get("display_image") is not None:
-    st.image(st.session_state.display_image, caption="Uploaded Image",use_container_width=True)
+# This section was moved higher up, right after the file processing logic block.
 
 # --- Main Page ---
 st.markdown("---")
@@ -613,9 +652,10 @@ with st.expander("User Guide & Disclaimer", expanded=False):
     2. **(DICOM)** Adjust Window/Level if needed.
     3. **ROI**: Draw a rectangle to focus the AI if desired.
     4. **AI Analysis**: Use sidebar buttons (Initial Analysis, Ask Question, Condition Analysis).
-    5. **Translation**: Translate AI text if needed.
-    6. **Confidence**: Estimate AI confidence.
-    7. **Generate Report**: Compile PDF with your interactions.
+    5. **UMLS Lookup**: Enter a term and search the UMLS database.
+    6. **Translation**: Translate AI text if needed.
+    7. **Confidence**: Estimate AI confidence.
+    8. **Generate Report**: Compile PDF with your interactions.
     """)
 
 st.markdown("---")
@@ -703,8 +743,12 @@ with col1:
                     st.json(st.session_state.dicom_metadata)
         elif st.session_state.is_dicom:
             st.caption("DICOM file loaded, but no metadata available.")
+    # If an image has been processed, but failed display somehow (shouldn't happen if processing_success=True)
+    elif st.session_state.get("processed_image") is not None:
+        st.error("Image data exists but failed to display. Check image type/mode.")
+    # If a file was uploaded but processing failed
     elif uploaded_file is not None:
-        st.error("Image preview failed. The file might be corrupted.")
+        st.error("Image preview unavailable. The file might be corrupted or unsupported.")
     else:
         st.info("⬅️ Please upload an image or enable Demo Mode in the sidebar.")
 
@@ -714,12 +758,23 @@ with col2:
         "🔬 Initial Analysis",
         "💬 Q&A History",
         "🩺 Condition Focus",
+        "📚 UMLS Lookup", # Added UMLS Tab
         "📈 Confidence",
         "🌐 Translation"
     ]
-    tabs = st.tabs(tab_titles)
+    # Dynamically adjust tab indices based on availability
+    tab_map = {}
+    current_index = 0
+    for title in tab_titles:
+        # Example: Conditionally skip UMLS if unavailable
+        # if title == "📚 UMLS Lookup" and not UMLS_AVAILABLE:
+        #     continue
+        tab_map[title] = current_index
+        current_index += 1
 
-    with tabs[0]:
+    tabs = st.tabs(list(tab_map.keys())) # Use the filtered/ordered list of titles
+
+    with tabs[tab_map["🔬 Initial Analysis"]]:
         st.text_area(
             "Overall Findings & Impressions",
             value=st.session_state.initial_analysis or "Run 'Initial Analysis' to see results here.",
@@ -727,7 +782,7 @@ with col2:
             disabled=True
         )
 
-    with tabs[1]:
+    with tabs[tab_map["💬 Q&A History"]]:
         st.text_area(
             "Latest AI Answer",
             value=st.session_state.qa_answer or "Ask a question to see AI's response here.",
@@ -751,7 +806,7 @@ with col2:
         else:
             st.caption("No questions asked yet.")
 
-    with tabs[2]:
+    with tabs[tab_map["🩺 Condition Focus"]]:
         st.text_area(
             "Condition-Specific Analysis",
             value=st.session_state.disease_analysis or "Select a condition and click 'Analyze Condition'.",
@@ -759,7 +814,49 @@ with col2:
             disabled=True
         )
 
-    with tabs[3]:
+    # New UMLS Tab
+    with tabs[tab_map["📚 UMLS Lookup"]]:
+        st.subheader("📚 UMLS Concept Search")
+        if not UMLS_AVAILABLE:
+            st.warning("UMLS features are unavailable. Ensure 'umls_utils.py' is present and 'UMLS_APIKEY' environment variable is set.")
+        else:
+            umls_search_term = st.text_input(
+                "Enter term to search in UMLS:",
+                value=st.session_state.get("umls_search_term", ""),
+                key="umls_search_term_input",
+                placeholder="e.g., lung nodule, cardiomegaly"
+            )
+            if st.button("🔎 Search UMLS", key="umls_search_button"):
+                if umls_search_term.strip():
+                    st.session_state.last_action = "umls_search"
+                    st.session_state.umls_search_term = umls_search_term # Store the searched term
+                    st.rerun()
+                else:
+                    st.warning("Please enter a search term.")
+
+            if st.session_state.get("umls_error"):
+                st.error(f"UMLS Search Error: {st.session_state.umls_error}")
+
+            if st.session_state.get("umls_results") is not None:
+                st.markdown("---")
+                st.subheader("Search Results")
+                results = st.session_state.umls_results
+                if results:
+                    st.success(f"Found {len(results)} concepts for '{st.session_state.umls_search_term}':")
+                    for concept in results:
+                        if isinstance(concept, UMLSConcept): # Check if it's the dataclass
+                            st.markdown(f"**{concept.name}** ({concept.ui})")
+                            st.caption(f"Source: {concept.rootSource} | URI: {concept.uri}")
+                            st.markdown("---")
+                        elif isinstance(concept, dict): # Fallback if stored as dict
+                            st.markdown(f"**{concept.get('name', 'N/A')}** ({concept.get('ui', 'N/A')})")
+                            st.caption(f"Source: {concept.get('rootSource', 'N/A')} | URI: {concept.get('uri', 'N/A')}")
+                            st.markdown("---")
+                else:
+                    st.info(f"No UMLS concepts found for '{st.session_state.umls_search_term}'.")
+
+
+    with tabs[tab_map["📈 Confidence"]]:
         st.text_area(
             "Estimated AI Confidence",
             value=st.session_state.confidence_score or "Run 'Estimate AI Confidence' after analysis.",
@@ -767,7 +864,7 @@ with col2:
             disabled=True
         )
 
-    with tabs[4]:
+    with tabs[tab_map["🌐 Translation"]]:
         st.subheader("🌐 Translate Analysis Text")
 
         if not TRANSLATION_AVAILABLE:
@@ -864,9 +961,10 @@ with col2:
 current_action = st.session_state.get("last_action")
 if current_action:
     logger.info(f"Handling action: '{current_action}' for session: {st.session_state.session_id}")
-    action_requires_image = current_action not in ["generate_report_data"]
+    action_requires_image = current_action not in ["generate_report_data", "umls_search"] # UMLS search doesn't need image
     action_requires_llm = current_action in ["analyze", "ask", "disease", "confidence"]
     action_requires_report_util = (current_action == "generate_report_data")
+    action_requires_umls = (current_action == "umls_search")
 
     if action_requires_image and not isinstance(st.session_state.get("processed_image"), Image.Image):
         st.error(f"No valid image for '{current_action}'. Please upload an image.")
@@ -884,6 +982,11 @@ if current_action:
         st.error("Report generation module unavailable.")
         st.session_state.last_action = None
         st.stop()
+    if action_requires_umls and not UMLS_AVAILABLE:
+        st.error("UMLS module unavailable or API key missing.")
+        st.session_state.last_action = None
+        st.stop()
+
 
     img_for_llm = st.session_state.processed_image
     roi_coords = st.session_state.roi_coords
@@ -962,6 +1065,38 @@ if current_action:
                 st.session_state.qa_answer = ""
                 logger.info(f"Disease analysis for {selected_disease} complete.")
                 st.success(f"Analysis for '{selected_disease}' complete!")
+
+        elif current_action == "umls_search": # Handle UMLS Search Action
+            term_to_search = st.session_state.get("umls_search_term", "").strip()
+            st.session_state.umls_results = None # Clear previous results
+            st.session_state.umls_error = None   # Clear previous error
+            if not term_to_search:
+                st.warning("UMLS search term is empty.")
+            else:
+                st.info(f"🔎 Searching UMLS for: '{term_to_search}'...")
+                with st.spinner("Querying UMLS..."):
+                    try:
+                        # Ensure UMLS_APIKEY is passed from environment or config
+                        if UMLS_AVAILABLE and UMLS_APIKEY and umls_utils:
+                            results = umls_utils.search_umls(term_to_search, UMLS_APIKEY)
+                            st.session_state.umls_results = results # Store the list of UMLSConcept objects
+                            logger.info(f"UMLS search for '{term_to_search}' returned {len(results)} results.")
+                            st.success("UMLS search complete.")
+                        else:
+                            st.error("UMLS utility not available or API key missing.")
+                            st.session_state.umls_error = "UMLS configuration error."
+                    except UMLSAuthError as auth_err:
+                        st.error(f"UMLS Authentication Failed: {auth_err}")
+                        logger.error(f"UMLS Auth Error: {auth_err}", exc_info=True)
+                        st.session_state.umls_error = f"Authentication Error: {auth_err}"
+                    except RuntimeError as search_err:
+                        st.error(f"UMLS Search Failed: {search_err}")
+                        logger.error(f"UMLS Search Runtime Error: {search_err}", exc_info=True)
+                        st.session_state.umls_error = f"Search Error: {search_err}"
+                    except Exception as e:
+                        st.error(f"An unexpected error occurred during UMLS search: {e}")
+                        logger.critical(f"Unexpected UMLS error: {e}", exc_info=True)
+                        st.session_state.umls_error = f"Unexpected error: {e}"
 
         elif current_action == "confidence":
             if not (current_history or st.session_state.initial_analysis or st.session_state.disease_analysis):
