@@ -530,35 +530,31 @@ with st.sidebar:
         )
 
 # --- File Upload Logic ---
+# --- File Upload Logic ---
 if uploaded_file is not None:
-    try:
-        uploaded_file.seek(0)
-        file_content_hash = hashlib.sha256(uploaded_file.read()).hexdigest()[:16]
-        uploaded_file.seek(0)
-        new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{file_content_hash}"
-    except Exception as e:
-        logger.warning(f"Could not generate hash for file: {e}")
-        new_file_info = f"{uploaded_file.name}-{uploaded_file.size}-{uuid.uuid4().hex[:8]}"
+    # ... (calculate new_file_info) ...
 
     if new_file_info != st.session_state.get("uploaded_file_info"):
         logger.info(f"New file uploaded: {uploaded_file.name} ({uploaded_file.size} bytes)")
-        st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
+        # ...
 
-        keys_to_preserve = {"file_uploader_widget", "session_id", "uploaded_file_info", "demo_loaded"}
-        # Preserve UMLS state across uploads unless we decide otherwise
+        # PROBLEM AREA: Resetting state *after* file uploader widget was drawn
+        keys_to_preserve = {"file_uploader_widget", "session_id", "uploaded_file_info", "demo_loaded"} # Includes the widget key
         keys_to_preserve.add("umls_search_term")
-        keys_to_preserve.add("umls_results")
-        keys_to_preserve.add("umls_error")
+        # ... (add other keys) ...
 
-        # Reset most state, but keep the session ID and preserved keys
-        # session_id = st.session_state.session_id # Keep current session ID
         preserved_values = {k: st.session_state.get(k) for k in keys_to_preserve}
+        # This loop is generally fine as it avoids preserved keys
         for key, value in DEFAULT_STATE.items():
             if key not in keys_to_preserve:
                  st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
-        # Restore preserved values
+
+        # THIS LOOP CAUSES THE ERROR:
+        # It tries to write back the value for "file_uploader_widget"
         for k, v in preserved_values.items():
-            st.session_state[k] = v
+            st.session_state[k] = v  # <--- Error when k == "file_uploader_widget"
+
+        # ... (rest of file processing) ...
 
         st.session_state.uploaded_file_info = new_file_info
         st.session_state.demo_loaded = False
