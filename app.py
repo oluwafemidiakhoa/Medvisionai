@@ -102,21 +102,21 @@ if not hasattr(_st_image, "image_to_url"):
             """
             Serialize a PIL Image to a base64 data‑URL so that st_canvas can re‑render it.
             """
-            # **Correct check**: Image.Image is the actual PIL class
             if not (PIL_AVAILABLE and isinstance(img_obj, Image.Image)):
                 return ""
 
-            # Determine format
-            fmt = (output_format.upper() if output_format != "auto" else (img_obj.format or "PNG"))
+            fmt = (
+                output_format.upper()
+                if output_format != "auto"
+                else (img_obj.format or "PNG")
+            )
             if fmt not in {"PNG", "JPEG", "WEBP", "GIF"}:
                 fmt = "PNG"
             if img_obj.mode == "RGBA" and fmt == "JPEG":
                 fmt = "PNG"
 
-            # Palette → RGBA
             if img_obj.mode == "P":
                 img_obj = img_obj.convert("RGBA")
-            # Convert to RGB if needed
             if channels == "RGB" and img_obj.mode not in {"RGB", "L"}:
                 img_obj = img_obj.convert("RGB")
 
@@ -128,7 +128,9 @@ if not hasattr(_st_image, "image_to_url"):
         _st_image.image_to_url = _image_to_url_monkey_patch  # type: ignore[attr-defined]
         logger.info("Monkey‑patch applied.")
     else:
-        logger.warning("Pillow not available; cannot apply image_to_url monkey‑patch.")
+        logger.warning(
+            "Pillow not available; cannot apply image_to_url monkey‑patch."
+        )
 
 # --- Render sidebar & get uploaded file ---
 uploaded_file = render_sidebar()
@@ -152,21 +154,20 @@ render_main_content(col1, col2)
 if action := st.session_state.get("last_action"):
     logger.info(f"Executing action: {action}")
     handle_action(action)
-    # reset if needed
     if st.session_state.get("last_action") == action:
         st.session_state.last_action = None
 
 # --- Status banners (optional) ---
 if not TRANSLATION_AVAILABLE:
-    st.warning("🌐 Translation features unavailable – install `deep-translator` & restart.")
+    st.warning("🌐 Translation unavailable – install `deep‑translator` & restart.")
 
 if not IS_UMLS_FULLY_AVAILABLE:
     reason = (
-        "UMLS utilities failed to load."
-        if not UMLS_UTILS_LOADED else
-        "UMLS_APIKEY missing; add it to HF Secrets & restart."
+        "UMLS utils failed to load."
+        if not UMLS_UTILS_LOADED
+        else "UMLS_APIKEY missing; add to HF Secrets & restart."
     )
-    st.warning(f"🧬 UMLS features unavailable – {reason}")
+    st.warning(f"🧬 UMLS unavailable – {reason}")
 
 # --- Footer ---
 st.markdown("---")
