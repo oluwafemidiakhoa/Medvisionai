@@ -1,17 +1,17 @@
-# ──────────  Core UI  ──────────
+# ── Core UI
 streamlit==1.44.1
-streamlit-drawable-canvas==0.9.3       # last HF‑validated release
+streamlit-drawable-canvas==0.9.3
 
-# ──────────  Imaging  ──────────
-Pillow==11.1.0                         # required by Streamlit + our monkey‑patch
+# ── Imaging
+Pillow==11.1.0
 
-# ─────────  DICOM I/O  ─────────
+# ── DICOM
 pydicom==3.0.1
 pylibjpeg
 pylibjpeg-libjpeg
 python-gdcm
 
-# ───────  HF / ML stack  ───────
+# ── HF / AI
 torch>=2.0.0
 transformers>=4.38.0
 accelerate>=0.24.0
@@ -19,23 +19,20 @@ sentencepiece
 scipy
 numpy>=1.23
 
-# ───────  Translation  ────────
-# deep‑translator pulls in httpx / httpcore – pin them so wheels resolve quickly
+# ── Translation (must have)
 deep-translator==1.11.4
-httpx==0.24.1
-httpcore==0.17.3
-certifi>=2024.2.2                      # httpx uses certifi for SSL CA bundle
 
-# ────────  UMLS / NLP  ─────────
-umls-api-client                        # very small helper
-spacy>=3.5.0
+# ── UMLS REST helper
+umls-api-client
+requests>=2.31.0
+
+# ── NLP / terminology
 scispacy>=0.5.1
-# spaCy needs a language model – download at build or runtime; not a pip dep.
+spacy>=3.5.0
 
-# ───────   PDF reports  ───────
+# ── PDF reporting
 fpdf2>=2.6.0
 
-# ───────     Misc      ───────
-requests>=2.31.0
+# ── Misc
 protobuf<4
 pyyaml>=6.0
