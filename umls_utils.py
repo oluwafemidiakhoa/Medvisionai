@@ -1,141 +1,192 @@
+# -*- coding: utf-8 -*-
+"""
+app.py (Main Application File)
+---------------------------------
+RadVision AI Advanced entry‑point wiring together:
+    • sidebar_ui.py          – upload & action buttons
+    • main_page_ui.py        – viewer + tabbed results
+    • file_processing.py     – image / DICOM ingestion
+    • action_handlers.py     – runs AI, UMLS, report generation
+
+The heavy‑lifting lives in the helper modules so editing this file
+only affects top‑level orchestration / theming logic.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
-import time
-import os
-import requests
+# ---------------------------------------------------------------------------
+# Standard library
+# ---------------------------------------------------------------------------
+import logging
+import sys
+import io
+import base64
+from typing import Any
 
-# =====================
-# Constants & Settings
-# =====================
-TGT_URL = "https://utslogin.nlm.nih.gov/cas/v1/api-key"
-SEARCH_URL = "https://uts-ws.nlm.nih.gov/rest/search/current"
-DEFAULT_SERVICE = "http://umlsks.nlm.nih.gov"
-USER_AGENT = "RadVisionAI/1.0 (+https://huggingface.co/spaces/mgbam/radvisionai)"
-# UMLS recommends not to exceed 20 requests/sec
-RATE_LIMIT_SLEEP = 0.05  # seconds between calls
-TIMEOUT = 15  # seconds for HTTP requests
+# ---------------------------------------------------------------------------
+# Third‑party deps
+# ---------------------------------------------------------------------------
+import streamlit as st
 
-# Default number of UMLS hits
-DEFAULT_UMLS_HITS: int = int(os.getenv("UMLS_HITS", "5"))
-# Optional source filtering (comma-separated string in env)
-SOURCE_FILTER: List[str] = (
-    os.getenv("UMLS_SOURCE_FILTER", "").split(',')
-    if os.getenv("UMLS_SOURCE_FILTER") else []
+# Pillow is only needed for the monkey‑patch that lets `st_canvas` re‑render
+# PIL Images; import *after* Streamlit so that any ImportError surfaces inside
+# the UI instead of crashing the Space outright.
+try:
+    from PIL import Image  # noqa: WPS433 – external import
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    Image = None  # type: ignore
+
+# ---------------------------------------------------------------------------
+# Local helper modules (each is < 300 lines)
+# ---------------------------------------------------------------------------
+from config import LOG_LEVEL, LOG_FORMAT, DATE_FORMAT, APP_CSS, FOOTER_MARKDOWN
+from session_state import initialize_session_state
+from sidebar_ui import render_sidebar
+from main_page_ui import render_main_content
+from file_processing import handle_file_upload
+from action_handlers import handle_action
+
+# Optional back‑ends – we show friendly banners if missing
+try:
+    from translation_models import TRANSLATION_AVAILABLE
+except ImportError:
+    TRANSLATION_AVAILABLE = False
+
+try:
+    from umls_utils import UMLS_AVAILABLE
+except ImportError:
+    UMLS_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
+# Streamlit page config (MUST be first Streamlit call)
+# ---------------------------------------------------------------------------
+st.set_page_config(
+    page_title="RadVision AI Advanced",
+    page_icon="⚕️",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
+# ---------------------------------------------------------------------------
+# Logging (overwrite any default handlers that Spaces inject)
+# ---------------------------------------------------------------------------
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format=LOG_FORMAT,
+    datefmt=DATE_FORMAT,
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
+logger.info("--- RadVision AI bootstrapping (Streamlit v%s) ---", st.__version__)
 
-class UMLSAuthError(RuntimeError):
-    """Raised when there is an authentication problem with UMLS."""
+# ---------------------------------------------------------------------------
+# Session‑state dict – all defaults live in `session_state.py`
+# ---------------------------------------------------------------------------
+initialize_session_state()
 
+# ---------------------------------------------------------------------------
+# Global CSS theme
+# ---------------------------------------------------------------------------
+st.markdown(APP_CSS, unsafe_allow_html=True)
 
-@dataclass
-class UMLSConcept:
-    """Dataclass representing a single UMLS search hit."""
-    ui: str
-    name: str
-    rootSource: str
-    uri: str
-    uriLabel: Optional[str] = None
+# ---------------------------------------------------------------------------
+# 🖼  Monkey‑patch `st.elements.image.image_to_url`  (needed by st_canvas)
+# ---------------------------------------------------------------------------
+import streamlit.elements.image as _st_image  # noqa: WPS433 – internal patch
 
-    @classmethod
-    def from_json(cls, item: Dict[str, Any]) -> UMLSConcept:
-        return cls(
-            ui=item.get("ui", ""),
-            name=item.get("name", ""),
-            rootSource=item.get("rootSource", ""),
-            uri=item.get("uri", ""),
-            uriLabel=item.get("uriLabel"),
-        )
+if not hasattr(_st_image, "image_to_url"):
 
-    def to_dict(self) -> Dict[str, str]:
-        return {
-            "ui": self.ui,
-            "name": self.name,
-            "rootSource": self.rootSource,
-            "uri": self.uri,
-            "uriLabel": self.uriLabel or "",
-        }
+    def _image_to_url_monkey_patch(  # noqa: D401
+        img_obj: Any,
+        width: int = -1,
+        clamp: bool = False,
+        channels: str = "RGB",
+        output_format: str = "auto",
+        image_id: str = "",
+    ) -> str:
+        """Serialize PIL Image → data‑URL so st_canvas can paint it back."""
+        if not (PIL_AVAILABLE and isinstance(img_obj, Image.Image)):
+            logger.warning("[Patch] Unsupported object %s – returning empty URL", type(img_obj))
+            return ""
 
+        fmt = output_format.upper() if output_format != "auto" else (img_obj.format or "PNG")
+        if fmt not in {"PNG", "JPEG", "WEBP", "GIF"}:
+            fmt = "PNG"
+        # JPEG cannot store alpha
+        if img_obj.mode == "RGBA" and fmt == "JPEG":
+            fmt = "PNG"
 
-# ================
-# Authentication
-# ================
+        buf = io.BytesIO()
+        # Palette images need conversion first
+        if img_obj.mode == "P":
+            img_obj = img_obj.convert("RGBA")
+        if channels == "RGB" and img_obj.mode not in {"RGB", "L"}:
+            img_obj = img_obj.convert("RGB")
+        img_obj.save(buf, format=fmt)
+        data_url = base64.b64encode(buf.getvalue()).decode()
+        return f"data:image/{fmt.lower()};base64,{data_url}"
 
-def get_tgt(apikey: str) -> str:
-    """Acquire a Ticket-Granting Ticket (TGT) for UMLS API calls."""
-    headers = {"User-Agent": USER_AGENT}
-    resp = requests.post(TGT_URL, data={"apikey": apikey}, headers=headers, timeout=TIMEOUT)
-    if resp.status_code != 201:
-        raise UMLSAuthError(f"Failed to obtain TGT: {resp.status_code} {resp.text}")
-    return resp.headers.get("location", "")
+    _st_image.image_to_url = _image_to_url_monkey_patch  # type: ignore[attr-defined]
+    logger.info("Applied monkey‑patch for st.image → data‑URL")
 
+# ---------------------------------------------------------------------------
+# Sidebar (file upload & action buttons)
+# ---------------------------------------------------------------------------
+uploaded_file = render_sidebar()
 
-def get_service_ticket(tgt: str, service: str = DEFAULT_SERVICE) -> str:
-    """Exchange a TGT for a single-use Service Ticket (ST)."""
-    headers = {"User-Agent": USER_AGENT}
-    resp = requests.post(tgt, data={"service": service}, headers=headers, timeout=TIMEOUT)
-    if resp.status_code != 200:
-        raise UMLSAuthError(f"Failed to obtain ST: {resp.status_code} {resp.text}")
-    return resp.text
+# ---------------------------------------------------------------------------
+# File processing (populate processed_image / display_image)
+# ---------------------------------------------------------------------------
+handle_file_upload(uploaded_file)
 
+# ---------------------------------------------------------------------------
+# Main content area (viewer & results tabs)
+# ---------------------------------------------------------------------------
+st.markdown("---")
+st.title("⚕️ RadVision AI Advanced · AI‑Assisted Image Analysis")
+with st.expander("User Guide & Disclaimer", expanded=False):
+    st.warning(
+        "⚠️ **Disclaimer**: This tool is intended for research / educational use only. "
+        "It is **NOT** a substitute for professional medical evaluation.",
+    )
+    st.markdown(
+        """
+        **Typical workflow**
+        1. **Upload** image (DICOM or PNG/JPG) – or enable *Demo Mode*.
+        2. **(DICOM)** adjust *Window / Level* if required.
+        3. *(optional)* draw an **ROI** rectangle.
+        4. Trigger AI actions from the sidebar *(Initial, Q&A, Condition etc.)*.
+        5. Explore results tabs (**UMLS**, **Translate**, **Confidence**) as needed.
+        6. **Generate PDF** for a portable report.
+        """,
+    )
 
-# ====================
-# Core Search Helper
-# ====================
+st.markdown("---")
+col1, col2 = st.columns([2, 3], gap="large")
+render_main_content(col1, col2)
 
-def search_umls(
-    term: str,
-    apikey: str,
-    page_size: int = DEFAULT_UMLS_HITS,
-    source_filter: Optional[List[str]] = None
-) -> List[UMLSConcept]:
-    """
-    Search the UMLS Metathesaurus for *term* and return top concepts.
+# ---------------------------------------------------------------------------
+# Deferred action triggered by sidebar buttons
+# ---------------------------------------------------------------------------
+if (action := st.session_state.get("last_action")):
+    handle_action(action)
 
-    Args:
-        term: The search string.
-        apikey: UMLS API key.
-        page_size: Number of results to fetch.
-        source_filter: Optional list of source vocabularies to filter by.
-    Returns:
-        A list of UMLSConcept objects.
-    """
-    # Authenticate
-    tgt = get_tgt(apikey)
-    st = get_service_ticket(tgt)
+# ---------------------------------------------------------------------------
+# Status banners for missing optional back‑ends
+# ---------------------------------------------------------------------------
+if not TRANSLATION_AVAILABLE:
+    st.warning("🌐 Translation backend not loaded – install `deep‑translator` & restart.")
 
-    headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
-    params = {"string": term, "ticket": st, "pageSize": str(page_size)}
+if not UMLS_AVAILABLE:
+    st.warning("🧬 UMLS features unavailable – add `UMLS_APIKEY` to HF Secrets & restart.")
 
-    resp = requests.get(SEARCH_URL, params=params, headers=headers, timeout=TIMEOUT)
-    time.sleep(RATE_LIMIT_SLEEP)
-
-    if resp.status_code != 200:
-        raise RuntimeError(f"UMLS search failed: {resp.status_code} {resp.text}")
-
-    data = resp.json()
-    results = data.get("result", {}).get("results", [])
-
-    concepts = [UMLSConcept.from_json(item) for item in results]
-    # Apply default and override filters
-    filter_list = source_filter if source_filter is not None else SOURCE_FILTER
-    if filter_list:
-        concepts = [c for c in concepts if c.rootSource in filter_list]
-    return concepts
-
-
-# =============
-# CLI Testing
-# =============
-if __name__ == "__main__":
-    import sys, pprint
-
-    key = os.getenv("UMLS_APIKEY")
-    if not key:
-        sys.exit("Set UMLS_APIKEY environment variable to test.")
-
-    term = "lung nodule" if len(sys.argv) < 2 else " ".join(sys.argv[1:])
-    concepts = search_umls(term, key)
-    pprint.pp([c.to_dict() for c in concepts])
+# ---------------------------------------------------------------------------
+# Footer
+# ---------------------------------------------------------------------------
+st.markdown("---")
+st.caption(f"⚕️ RadVision AI Advanced | Session ID: {st.session_state.get('session_id', 'N/A')}")
+st.markdown(FOOTER_MARKDOWN, unsafe_allow_html=True)
+logger.info("--- Render complete – Session ID: %s ---", st.session_state.get("session_id"))
