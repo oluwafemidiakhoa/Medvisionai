@@ -1,115 +1,86 @@
+# ──────────────────────────────────────────────────────────────────────────────
 # -*- coding: utf-8 -*-
 """
-app.py – RadVision AI Advanced (main entry‑point)
--------------------------------------------------
-Orchestrates the RadVision AI application modules and UI flow:
-  • streamlit page config & logging
-  • session‑state initialization
-  • global CSS & monkey‑patch
-  • sidebar (upload & controls)
-  • file processing (DICOM/image ingestion)
-  • main page UI (viewer + tabs)
-  • deferred action handling (AI, UMLS, reports)
-  • status banners for missing translation/UMLS
-  • footer
+app.py – RadVision AI Advanced
+──────────────────────────────
+Main entry‑point that wires together:
+
+    • sidebar_ui.py          – upload & action buttons
+    • main_page_ui.py        – viewer + tabbed results
+    • file_processing.py     – image / DICOM ingestion
+    • action_handlers.py     – AI, UMLS, reporting
+
+It also:
+    • sets Streamlit page config & global CSS
+    • initialises / resets session‑state
+    • applies a Pillow‑based monkey‑patch so
+      `streamlit‑drawable‑canvas` can re‑render images
+    • shows status banners for optional subsystems
 """
 from __future__ import annotations
 
+# ── stdlib ────────────────────────────────────────────────────────────────────
 import logging
 import sys
 import io
 import base64
-import os
 from typing import Any, TYPE_CHECKING
+import os
 
+# ── third‑party ───────────────────────────────────────────────────────────────
 import streamlit as st
 
-# Pillow is used in the monkey‑patch below
+# Pillow (image handling) – optional but strongly recommended
 try:
-    from PIL import Image
+    import PIL.Image as PIL_ImageModule
+    from PIL.Image import Image as PILImageClass
     PIL_AVAILABLE = True
-except ImportError:
+except ImportError:                       # graceful degradation
+    PIL_ImageModule = None                # type: ignore
+    PILImageClass = object                # dummy sentinel
     PIL_AVAILABLE = False
-    Image = None  # type: ignore
-    logging.getLogger(__name__).warning(
-        "Pillow not found; some image features will be disabled."
-    )
+    logging.warning("Pillow not installed – image features limited.")
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:                         # mypy / IDE hints only
     from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-# ------------------------------------------------------------------------------
-# Local configuration & messages
-# ------------------------------------------------------------------------------
+# ── local modules ─────────────────────────────────────────────────────────────
 try:
     from config import (
-        LOG_LEVEL,
-        LOG_FORMAT,
-        DATE_FORMAT,
-        APP_CSS,
-        FOOTER_MARKDOWN,
-        APP_TITLE,
-        APP_ICON,
-        USER_GUIDE_MARKDOWN,
-        DISCLAIMER_WARNING,
+        LOG_LEVEL, LOG_FORMAT, DATE_FORMAT,
+        APP_TITLE, APP_ICON,
+        APP_CSS, FOOTER_MARKDOWN,
+        USER_GUIDE_MARKDOWN, DISCLAIMER_WARNING,
         UMLS_CONFIG_MSG,
     )
-except ImportError as e:
-    st.error(f"CRITICAL: Failed to load config.py: {e}")
-    logging.critical(f"CRITICAL: Failed to load config.py: {e}", exc_info=True)
+except ImportError as cfg_err:            # critical – exit early
+    st.error(f"❌ Failed to import config.py – {cfg_err}")
+    logging.critical("config import failed", exc_info=True)
     sys.exit(1)
 
-# ------------------------------------------------------------------------------
-# Core modules
-# ------------------------------------------------------------------------------
-from session_state import initialize_session_state
-from sidebar_ui    import render_sidebar
+from session_state   import initialize_session_state
+from sidebar_ui      import render_sidebar
+from main_page_ui    import render_main_content
 from file_processing import handle_file_upload
-from main_page_ui import render_main_content
 from action_handlers import handle_action
 
-# ------------------------------------------------------------------------------
-# Optional features
-# ------------------------------------------------------------------------------
-# Translation
+# Optional subsystems ---------------------------------------------------------
 try:
     from translation_models import TRANSLATION_AVAILABLE, TRANSLATION_CONFIG_MSG
-    logging.getLogger(__name__).info(f"Translation Available: {TRANSLATION_AVAILABLE}")
 except ImportError:
-    TRANSLATION_AVAILABLE = False
-    TRANSLATION_CONFIG_MSG = (
-        "Translation module missing or dependencies (deep-translator) not installed."
-    )
-    logging.getLogger(__name__).warning(
-        "translation_models.py import failed; translation disabled."
-    )
-
-# UMLS
+    TRANSLATION_AVAILABLE  = False
+    TRANSLATION_CONFIG_MSG = "translation_models missing or `deep‑translator` not installed."
 try:
-    from umls_utils import UMLS_UTILS_LOADED  # bool flag exported by umls_utils
-    logging.getLogger(__name__).info(f"UMLS Utils Loaded: {UMLS_UTILS_LOADED}")
+    from umls_utils import UMLS_UTILS_LOADED     # indicates module + requests ok
 except ImportError:
     UMLS_UTILS_LOADED = False
-    logging.getLogger(__name__).warning(
-        "umls_utils.py import failed; UMLS features disabled."
-    )
 
-UMLS_API_KEY_PRESENT = bool(os.getenv("UMLS_APIKEY"))
-IS_UMLS_FULLY_AVAILABLE = UMLS_UTILS_LOADED and UMLS_API_KEY_PRESENT
-logging.getLogger(__name__).info(
-    f"UMLS Key Present: {UMLS_API_KEY_PRESENT}, Fully Available: {IS_UMLS_FULLY_AVAILABLE}"
-)
+UMLS_API_KEY_PRESENT   = bool(os.getenv("UMLS_APIKEY"))
+UMLS_FULLY_AVAILABLE   = UMLS_UTILS_LOADED and UMLS_API_KEY_PRESENT
 
-# ------------------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------------------
-def get_session_id() -> str:
-    """Return the current session ID from Streamlit state."""
-    return st.session_state.get("session_id", "unknown")
-
-# ------------------------------------------------------------------------------
-# 1) Page config (must be first Streamlit call)
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 1  Streamlit page config – MUST be first Streamlit call
+# ──────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title=APP_TITLE,
     page_icon=APP_ICON,
@@ -117,9 +88,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ------------------------------------------------------------------------------
-# 2) Logging
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 2  Logging
+# ──────────────────────────────────────────────────────────────────────────────
 for h in logging.root.handlers[:]:
     logging.root.removeHandler(h)
 logging.basicConfig(
@@ -130,122 +101,123 @@ logging.basicConfig(
     force=True,
 )
 logger = logging.getLogger(__name__)
-logger.info("=== RadVision AI start (Streamlit v%s) ===", st.__version__)
+logger.info("RadVision AI boot • Streamlit %s", st.__version__)
 
-# ------------------------------------------------------------------------------
-# 3) Session‑state init
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 3  Session‑state initialise
+# ──────────────────────────────────────────────────────────────────────────────
 initialize_session_state()
-logger.debug("Session initialized. ID=%s", get_session_id())
+session_id = st.session_state.get("session_id", "N/A")
+logger.debug("Session initialised – ID: %s", session_id)
 
-# ------------------------------------------------------------------------------
-# 4) Global CSS
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 4  Global CSS theme
+# ──────────────────────────────────────────────────────────────────────────────
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
-# ------------------------------------------------------------------------------
-# 5) Monkey‑patch st.image for drawable canvas
-# ------------------------------------------------------------------------------
-import streamlit.elements.image as _st_image  # noqa: E402
+# ──────────────────────────────────────────────────────────────────────────────
+# 5  Monkey‑patch  (image → base64 data‑URL for drawable‑canvas)
+# ──────────────────────────────────────────────────────────────────────────────
+import streamlit.elements.image as _st_image               # noqa: WPS433
+
 if not hasattr(_st_image, "image_to_url"):
-    if PIL_AVAILABLE:
-        logger.info("Applying st.image_to_url monkey‑patch for drawable canvas.")
-        def _image_to_url_monkey_patch(
-            image: Any,
-            width: int = -1,
-            clamp: bool = False,
-            channels: str = "RGB",
-            output_format: str = "auto",
-            image_id: str = "",
-        ) -> str:
-            if not (PIL_AVAILABLE and isinstance(image, Image)):
-                logger.warning(
-                    "image_to_url: unsupported type %s; returning empty URL",
-                    type(image),
-                )
-                return ""
-            fmt = (output_format.upper() if output_format != "auto"
-                   else (image.format or "PNG"))
-            if fmt not in {"PNG", "JPEG", "WEBP", "GIF"}:
-                fmt = "PNG"
-            if image.mode == "RGBA" and fmt == "JPEG":
-                fmt = "PNG"
-            img = image
-            if img.mode == "P":
-                img = img.convert("RGBA")
-            if channels == "RGB" and img.mode not in {"RGB", "L"}:
-                img = img.convert("RGB")
-            buf = io.BytesIO()
-            try:
-                img.save(buf, format=fmt)
-            except Exception as e:
-                logger.error("Failed to buffer image (%s): %s", fmt, e)
-                return ""
-            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-            return f"data:image/{fmt.lower()};base64,{b64}"
-        _st_image.image_to_url = _image_to_url_monkey_patch  # type: ignore[attr-defined]
-        logger.info("Monkey‑patch applied.")
-    else:
-        logger.warning(
-            "Pillow missing; cannot apply image_to_url monkey‑patch."
+
+    def _image_to_url_monkey_patch(
+        img_obj: Any,
+        width: int = -1,
+        clamp: bool = False,
+        channels: str = "RGB",
+        output_format: str = "auto",
+        image_id: str = "",
+    ) -> str:
+        """Return a `data:image/...` URL for a PIL Image."""
+        if not (PIL_AVAILABLE and isinstance(img_obj, PILImageClass)):
+            logger.warning("image_to_url: unsupported type %s", type(img_obj))
+            return ""
+
+        # choose format
+        fmt = (
+            output_format.upper()
+            if output_format != "auto"
+            else (getattr(img_obj, "format", None) or "PNG")
         )
+        if fmt not in {"PNG", "JPEG", "WEBP", "GIF"}:
+            fmt = "PNG"
+        if img_obj.mode == "RGBA" and fmt == "JPEG":
+            fmt = "PNG"                            # keep alpha
+
+        # convert modes as needed
+        if img_obj.mode == "P":
+            img_obj = img_obj.convert("RGBA")
+        if channels == "RGB" and img_obj.mode not in {"RGB", "L"}:
+            img_obj = img_obj.convert("RGB")
+
+        buf = io.BytesIO()
+        try:
+            img_obj.save(buf, format=fmt)
+        except Exception as exc:                   # pragma: no cover
+            logger.error("image_to_url: %s", exc, exc_info=True)
+            return ""
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        return f"data:image/{fmt.lower()};base64,{b64}"
+
+    _st_image.image_to_url = _image_to_url_monkey_patch  # type: ignore[attr-defined]
+    logger.info("Patched st.image → data‑URL (drawable‑canvas support)")
 else:
-    logger.debug("st.image_to_url already present; skipping patch.")
+    logger.info("image_to_url already present – no patch applied.")
 
-# ------------------------------------------------------------------------------
-# 6) Sidebar & file upload
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 6  Sidebar  (upload + action buttons)
+# ──────────────────────────────────────────────────────────────────────────────
 uploaded_file: UploadedFile | None = render_sidebar()
-logger.debug("Sidebar rendered; uploaded_file=%s", type(uploaded_file).__name__)
 
-# ------------------------------------------------------------------------------
-# 7) File ingestion & state update
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 7  File processing (populates display_image / processed_image)
+# ──────────────────────────────────────────────────────────────────────────────
 handle_file_upload(uploaded_file)
 
-# ------------------------------------------------------------------------------
-# 8) Main content area
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 8  Main layout
+# ──────────────────────────────────────────────────────────────────────────────
 st.divider()
-st.title(f"{APP_ICON} {APP_TITLE} · AI‑Assisted Image Analysis")
-with st.expander("User Guide & Disclaimer", expanded=False):
-    st.warning(f"⚠️ {DISCLAIMER_WARNING}")
+st.title(f"{APP_ICON} {APP_TITLE} · AI‑Assisted Image Analysis")
+with st.expander("User Guide & Disclaimer", expanded=False):
+    st.warning(f"⚠️ **Disclaimer**: {DISCLAIMER_WARNING}")
     st.markdown(USER_GUIDE_MARKDOWN, unsafe_allow_html=True)
 st.divider()
 
-col1, col2 = st.columns([2, 3], gap="large")
-render_main_content(col1, col2)
+col_view, col_results = st.columns([2, 3], gap="large")
+render_main_content(col_view, col_results)
 
-# ------------------------------------------------------------------------------
-# 9) Deferred action handling
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 9  Deferred actions
+# ──────────────────────────────────────────────────────────────────────────────
 if (action := st.session_state.get("last_action")):
-    logger.info("Handling action: %s", action)
+    logger.info("Executing action: %s", action)
     handle_action(action)
-    # if still set, clear to avoid loops
-    if st.session_state.get("last_action") == action:
+    if st.session_state.get("last_action") == action:   # action handler may rerun
         st.session_state.last_action = None
-        logger.debug("Cleared last_action flag.")
 
-# ------------------------------------------------------------------------------
-# 10) Status banners for optional features
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 10  Status banners for optional systems
+# ──────────────────────────────────────────────────────────────────────────────
 if not TRANSLATION_AVAILABLE:
-    st.warning(f"🌐 Translation unavailable – {TRANSLATION_CONFIG_MSG}")
-    logger.warning("Displayed translation banner.")
+    st.warning(f"🌐 Translation unavailable – {TRANSLATION_CONFIG_MSG}")
 
-if not IS_UMLS_FULLY_AVAILABLE:
-    reason = (UMLS_CONFIG_MSG
-              if UMLS_API_KEY_PRESENT else
-              "Missing UMLS dependencies or API key.")
-    st.warning(f"🧬 UMLS unavailable – {reason}")
-    logger.warning("Displayed UMLS banner: %s", reason)
+if not UMLS_FULLY_AVAILABLE:
+    reason = (
+        "UMLS utilities failed to load."
+        if not UMLS_UTILS_LOADED else
+        UMLS_CONFIG_MSG
+        if not UMLS_API_KEY_PRESENT else
+        "Unknown configuration issue."
+    )
+    st.warning(f"🧬 UMLS unavailable – {reason}")
 
-# ------------------------------------------------------------------------------
-# 11) Footer
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# 11  Footer
+# ──────────────────────────────────────────────────────────────────────────────
 st.divider()
-session_id = get_session_id()
-st.caption(f"{APP_ICON} {APP_TITLE} | Session ID: {session_id}")
+st.caption(f"{APP_ICON} {APP_TITLE} | Session ID: {session_id}")
 st.markdown(FOOTER_MARKDOWN, unsafe_allow_html=True)
-logger.info("=== Render complete; Session ID=%s ===", session_id)
+logger.info("Render complete • Session ID: %s", session_id)
