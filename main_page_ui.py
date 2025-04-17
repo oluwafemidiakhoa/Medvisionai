@@ -1,194 +1,408 @@
 # main_page_ui.py
+# -*- coding: utf‑8 -*-
+"""
+Streamlit UI layer for RadVision AI.
+
+‑ Renders the Image‑Viewer (with drawable ROI)
+‑ Shows analysis tabs (Initial / Q&A / Condition / Confidence / Translate / UMLS Lookup)
+‑ Handles manual UMLS search and displays auto‑enriched concepts
+
+This file assumes:
+    • session_state.py has created all default keys
+    • action_handlers.handle_action() drives back‑end work
+    • ui_components.display_umls_concepts() pretty‑prints a list[UMLSConcept]
+"""
+
+from __future__ import annotations
+
 import streamlit as st
 import logging
 import os
+from typing import Optional
+
 from PIL import Image, ImageDraw
-from typing import Optional # Added for format_translation hint
 
-# --- Import specific UI components needed ---
-# Define fallbacks if imports fail
-try: from ui_components import display_dicom_metadata
-except ImportError: display_dicom_metadata = None; logging.warning("display_dicom_metadata not imported.")
-try: from ui_components import display_umls_concepts
-except ImportError: display_umls_concepts = None; logging.warning("display_umls_concepts not imported.")
-# --- End UI Component Imports ---
+# ──────────────────────────────
+#  Optional UI helpers
+# ──────────────────────────────
+try:
+    from ui_components import display_dicom_metadata
+except ImportError:
+    display_dicom_metadata = None
+    logging.warning("display_dicom_metadata not imported.")
 
-try: from streamlit_drawable_canvas import st_canvas; DRAWABLE_CANVAS_AVAILABLE = True
-except ImportError: st_canvas = None; DRAWABLE_CANVAS_AVAILABLE = False
+try:
+    from ui_components import display_umls_concepts
+except ImportError:
+    display_umls_concepts = None
+    logging.warning("display_umls_concepts not imported.")
 
-try: from translation_models import TRANSLATION_AVAILABLE, LANGUAGE_CODES, AUTO_DETECT_INDICATOR, translate
-except ImportError: TRANSLATION_AVAILABLE = False; LANGUAGE_CODES={"En":"en"}; AUTO_DETECT_INDICATOR="Auto"; translate=None
+# drawable‑canvas (optional)
+try:
+    from streamlit_drawable_canvas import st_canvas
 
-try: from umls_utils import search_umls, UMLSAuthError, UMLSConcept, UMLS_APIKEY, UMLS_AVAILABLE
-except ImportError: UMLS_AVAILABLE = False; search_umls=None; UMLSAuthError=RuntimeError; UMLSConcept=None; UMLS_APIKEY=None
-try: from config import DEFAULT_UMLS_HITS
-except ImportError: DEFAULT_UMLS_HITS = 5
+    DRAWABLE_CANVAS_AVAILABLE = True
+except ImportError:
+    st_canvas = None
+    DRAWABLE_CANVAS_AVAILABLE = False
 
-# --- Define format_translation (either imported or fallback) ---
+# translation layer (optional)
+try:
+    from translation_models import (
+        TRANSLATION_AVAILABLE,
+        LANGUAGE_CODES,
+        AUTO_DETECT_INDICATOR,
+        translate,
+    )
+except ImportError:
+    TRANSLATION_AVAILABLE = False
+    LANGUAGE_CODES = {"English": "en"}
+    AUTO_DETECT_INDICATOR = "Auto"
+    translate = None
+
+# UMLS helpers (optional)
+try:
+    from umls_utils import (
+        search_umls,
+        UMLSAuthError,
+        UMLSConcept,
+        UMLS_APIKEY,
+        UMLS_AVAILABLE,
+    )
+except ImportError:  # pragma: no cover
+    UMLS_AVAILABLE = False
+    search_umls = None
+    UMLSAuthError = RuntimeError
+    UMLSConcept = None
+    UMLS_APIKEY = None
+
+# shared config
+try:
+    from config import DEFAULT_UMLS_HITS
+except ImportError:
+    DEFAULT_UMLS_HITS = 5
+
+# fallback for format_translation
 try:
     from session_state import format_translation
-    logging.info("Imported format_translation from session_state.")
 except ImportError:
-    logging.warning("Could not import format_translation from session_state. Using basic fallback.")
-    def format_translation(t: Optional[str]) -> str:
-        """Basic fallback for formatting translation."""
-        return str(t) if t else ""
-# --- End format_translation definition ---
 
-logger = logging.getLogger(__name__) # Initialize logger after potential logging warnings
-
-def _render_image_viewer(column):
-    # (Keep existing _render_image_viewer logic - No changes needed here)
-    with column:
-        st.subheader("🖼️ Image Viewer")
-        display_img = st.session_state.get("display_image")
-        if isinstance(display_img, Image.Image):
-            logger.debug("Rendering image viewer...")
-            if DRAWABLE_CANVAS_AVAILABLE and st_canvas:
-                st.caption("Draw rectangle for ROI.")
-                MAX_W, MAX_H = 600, 500; img_w, img_h = display_img.size
-                if img_w <= 0 or img_h <= 0: st.warning("Invalid image size.")
-                else:
-                    ar = img_w / img_h; can_w = min(img_w, MAX_W); can_h = int(can_w / ar)
-                    if can_h > MAX_H: can_h = MAX_H; can_w = int(can_h * ar)
-                    can_w, can_h = max(can_w, 150), max(can_h, 150); logger.debug(f"Canvas: {can_w}x{can_h}")
-                    canvas_result = st_canvas(fill_color="rgba(255,165,0,0.2)", stroke_width=2, stroke_color="rgba(239,83,80,0.8)", background_image=display_img, update_streamlit=True, height=can_h, width=can_w, drawing_mode="rect", initial_drawing=st.session_state.get("canvas_drawing"), key="drawable_canvas")
-                    if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                        if canvas_result.json_data["objects"]:
-                            lobj = canvas_result.json_data["objects"][-1]
-                            if lobj["type"] == "rect":
-                                cl, ct = int(lobj["left"]), int(lobj["top"]); cws = int(lobj["width"]*lobj.get("scaleX",1)); chs = int(lobj["height"]*lobj.get("scaleY",1))
-                                scx, scy = img_w/can_w, img_h/can_h; ol = max(0, int(cl*scx)); ot = max(0, int(ct*scy))
-                                ow = max(1, min(img_w-ol, int(cws*scx))); oh = max(1, min(img_h-ot, int(chs*scy)))
-                                new_roi = {"left":ol, "top":ot, "width":ow, "height":oh}
-                                if st.session_state.get("roi_coords") != new_roi: st.session_state.roi_coords=new_roi; st.session_state.canvas_drawing=canvas_result.json_data; logger.info(f"ROI set: {new_roi}"); st.info(f"ROI Set: ({ol},{ot}), Size: {ow}x{oh}", icon="🎯")
-            else: st.image(display_img, caption="Preview", use_container_width=True)
-            if st.session_state.get("roi_coords"): r = st.session_state.roi_coords; st.caption(f"ROI: ({r['left']},{r['top']})-W:{r['width']},H:{r['height']}")
-            st.markdown("---")
-            if st.session_state.get("is_dicom") and st.session_state.get("dicom_metadata"):
-                if display_dicom_metadata: display_dicom_metadata(st.session_state.dicom_metadata)
-                else: st.json(st.session_state.dicom_metadata)
-        elif st.session_state.get("uploaded_file_info") and not display_img: st.error("❌ Image preview unavailable (processing failed).")
-        else: st.info("⬅️ Upload an image or use Demo Mode.")
+    def format_translation(txt: Optional[str]) -> str:  # type: ignore
+        return str(txt or "")
 
 
-def _render_results_tabs(column):
-    """Renders the analysis results tabs, including UMLS sections."""
-    with column:
-        st.subheader("📊 Analysis & Results")
-        tab_titles = ["🔬 Initial", "💬 Q&A", "🩺 Condition", "📈 Confidence", "🌐 Translate", "🧬 UMLS Lookup"]
-        tabs = st.tabs(tab_titles)
+logger = logging.getLogger(__name__)
 
-        with tabs[0]: # Initial Analysis
-            st.text_area("Findings", value=st.session_state.get("initial_analysis", "Run Initial Analysis."), height=400, disabled=True, key="init_disp")
-            if display_umls_concepts and st.session_state.get("initial_analysis_umls"):
-                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts:**")
-                display_umls_concepts(st.session_state.initial_analysis_umls)
-            elif st.session_state.get("initial_analysis_umls"):
-                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
-                try: st.json([c.to_dict() for c in st.session_state.initial_analysis_umls])
-                except AttributeError: st.json(st.session_state.initial_analysis_umls)
 
-        with tabs[1]: # Q&A
-            st.text_area("Latest Answer", value=st.session_state.get("qa_answer", "Ask a question."), height=150, disabled=True, key="qa_disp")
-            if display_umls_concepts and st.session_state.get("qa_umls"):
-                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Latest Answer):**")
-                display_umls_concepts(st.session_state.qa_umls)
-            elif st.session_state.get("qa_umls"):
-                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
-                 try: st.json([c.to_dict() for c in st.session_state.qa_umls])
-                 except AttributeError: st.json(st.session_state.qa_umls)
-            st.markdown("---"); st.subheader("History")
-            history = st.session_state.get("history", [])
-            if history:
-                 for i, (qt, m) in enumerate(reversed(history)): pfx = "👤:" if qt.lower().startswith("user") else "🤖:" if qt.lower().startswith("ai") else "ℹ️:" if qt.lower().startswith("sys") else f"**{qt}:**"; unsafe = "ai" in qt.lower(); st.markdown(f"{pfx} {m}", unsafe_allow_html=unsafe);
-                 if i < len(history)-1: st.markdown("---")
-            else: st.caption("No Q&A yet.")
+# ──────────────────────────────
+#  IMAGE‑VIEWER (left column)
+# ──────────────────────────────
+def _render_image_viewer(col):
+    with col:
+        st.subheader("🖼️ Image Viewer")
 
-        with tabs[2]: # Condition
-            st.text_area("Condition Analysis", value=st.session_state.get("disease_analysis", "Run Condition Analysis."), height=400, disabled=True, key="dis_disp")
-            if display_umls_concepts and st.session_state.get("disease_umls"):
-                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts:**")
-                display_umls_concepts(st.session_state.disease_umls)
-            elif st.session_state.get("disease_umls"):
-                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
-                 try: st.json([c.to_dict() for c in st.session_state.disease_umls])
-                 except AttributeError: st.json(st.session_state.disease_umls)
-
-        with tabs[3]: # Confidence
-             st.text_area("Confidence", value=st.session_state.get("confidence_score", "Run Confidence Estimation."), height=400, disabled=True, key="conf_disp")
-
-        with tabs[4]: # Translation
-            st.subheader("🌐 Translate")
-            if not TRANSLATION_AVAILABLE: st.warning("Translation unavailable.")
+        img: Image.Image | None = st.session_state.get("display_image")
+        if not isinstance(img, Image.Image):
+            if st.session_state.get("uploaded_file_info"):
+                st.error("❌ Image preview unavailable.")
             else:
-                st.caption("Select text, languages, translate.")
-                txt_opts = {"Initial": st.session_state.get("initial_analysis"), "Q&A": st.session_state.get("qa_answer"), "Condition": st.session_state.get("disease_analysis"), "Confidence": st.session_state.get("confidence_score"), "(Custom)": ""}
-                avail_opts = {lbl: txt for lbl, txt in txt_opts.items() if (txt and txt.strip()) or lbl == "(Custom)"}
-                if not avail_opts: st.info("No text to translate.")
-                else:
-                    sel_lbl = st.selectbox("Translate:", list(avail_opts.keys()), 0, key="trans_sel"); txt_to_trans = avail_opts.get(sel_lbl, "")
-                    if sel_lbl == "(Custom)": txt_to_trans = st.text_area("Custom text:", "", 100, key="trans_cust_in")
-                    else: st.text_area("Selected:", txt_to_trans, 100, disabled=True, key="trans_sel_disp")
-                    cl1, cl2 = st.columns(2)
-                    with cl1: src_opts = [AUTO_DETECT_INDICATOR] + sorted(LANGUAGE_CODES.keys()); src_lang = st.selectbox("From:", src_opts, 0, key="trans_src")
-                    with cl2: tgt_opts = sorted(LANGUAGE_CODES.keys()); tgt_idx=0; common=["English","Spanish"];
-                    for i, l in enumerate(tgt_opts):
-                        if l in common: tgt_idx=i; break
-                    tgt_lang = st.selectbox("To:", tgt_opts, tgt_idx, key="trans_tgt")
-                    if st.button("🔄 Translate", key="trans_btn"):
-                        st.session_state.translation_result=None; st.session_state.translation_error=None
-                        if not txt_to_trans.strip(): st.warning("No text."); st.session_state.translation_error="Empty."
-                        elif src_lang == tgt_lang and src_lang != AUTO_DETECT_INDICATOR: st.info("Same language."); st.session_state.translation_result=txt_to_trans
-                        else:
-                            with st.spinner("Translating..."):
-                                try:
-                                    if translate: out=translate(text=txt_to_trans, target_language=tgt_lang, source_language=src_lang)
-                                    else: raise RuntimeError("Translate fn missing")
-                                    if out is not None: st.session_state.translation_result=out; st.success("OK!")
-                                    else: st.error("No result."); st.session_state.translation_error="None."
-                                except Exception as e: st.error(f"Fail:{e}"); st.session_state.translation_error=str(e)
-                    if st.session_state.get("translation_result"): st.text_area("Result:", format_translation(st.session_state.translation_result), 200, key="trans_out")
+                st.info("⬅️ Upload an image or enable *Demo Mode* in the sidebar.")
+            return
 
-        # --- UMLS Lookup Tab ---
-        with tabs[5]:
-            st.subheader("🧬 UMLS Manual Lookup")
-            if not UMLS_AVAILABLE: st.warning("UMLS features unavailable.")
-            elif not search_umls: st.error("UMLS search function unavailable.")
+        # ------------ ROI canvas ------------
+        if DRAWABLE_CANVAS_AVAILABLE and st_canvas:
+            st.caption("Draw rectangle for ROI.")
+            max_w, max_h = 600, 500
+            w, h = img.size
+            if w <= 0 or h <= 0:
+                st.warning("Invalid image size.")
             else:
-                term = st.text_input("Enter term to search UMLS:", value=st.session_state.get("umls_search_term", ""), key="umls_manual_term_input")
-                st.session_state.umls_search_term = term
-                if st.button("Search UMLS", key="umls_manual_search_btn"):
-                    manual_search_term = term.strip(); st.session_state.umls_results = None; st.session_state.umls_error = None
-                    if not manual_search_term: st.warning("Please enter lookup term.")
-                    elif not UMLS_APIKEY: st.error("UMLS_APIKEY not set."); logger.error("Manual UMLS search: API key missing.")
-                    else:
-                        with st.spinner("Querying UMLS..."):
-                            # --- Corrected try...except block ---
-                            try: # START try
-                                concepts = search_umls(manual_search_term, UMLS_APIKEY, page_size=DEFAULT_UMLS_HITS)
-                                st.session_state.umls_results = concepts # Store results
-                                logger.info(f"Manual UMLS found {len(concepts)} concepts for '{manual_search_term}'.")
-                                if not concepts:
-                                    st.info("No concepts found for this term.")
-                            except UMLSAuthError as e: # Correctly indented except
-                                err_msg = f"UMLS Auth Error: {e}"; st.error(err_msg); st.session_state.umls_error = err_msg; logger.error(err_msg)
-                            except Exception as e: # Correctly indented except
-                                err_msg = f"UMLS Search Error: {e}"; st.error(err_msg); st.session_state.umls_error = err_msg; logger.error(err_msg, exc_info=True)
-                            # --- End corrected block ---
+                aspect = w / h
+                c_w = min(w, max_w)
+                c_h = int(c_w / aspect)
+                if c_h > max_h:
+                    c_h = max_h
+                    c_w = int(c_h * aspect)
+                c_w = max(c_w, 150)
+                c_h = max(c_h, 150)
 
-            # Display manual search results
-            if st.session_state.get("umls_results") is not None:
+                canvas = st_canvas(
+                    fill_color="rgba(255,165,0,0.25)",
+                    stroke_color="rgba(239,83,80,0.9)",
+                    stroke_width=2,
+                    background_image=img,
+                    update_streamlit=True,
+                    height=c_h,
+                    width=c_w,
+                    drawing_mode="rect",
+                    initial_drawing=st.session_state.get("canvas_drawing"),
+                    key="drawable_canvas",
+                )
+
+                if canvas.json_data and canvas.json_data.get("objects"):
+                    obj = canvas.json_data["objects"][-1]
+                    if obj["type"] == "rect":
+                        # convert canvas coords → original pixels
+                        left = int(obj["left"])
+                        top = int(obj["top"])
+                        ow = int(obj["width"] * obj.get("scaleX", 1))
+                        oh = int(obj["height"] * obj.get("scaleY", 1))
+                        scale_x = w / c_w
+                        scale_y = h / c_h
+                        roi = {
+                            "left": max(0, int(left * scale_x)),
+                            "top": max(0, int(top * scale_y)),
+                            "width": max(1, int(ow * scale_x)),
+                            "height": max(1, int(oh * scale_y)),
+                        }
+                        if roi != st.session_state.get("roi_coords"):
+                            st.session_state.roi_coords = roi
+                            st.session_state.canvas_drawing = canvas.json_data
+                            logger.info(f"ROI set: {roi}")
+                            st.info(
+                                f"ROI: ({roi['left']}, {roi['top']}) "
+                                f"{roi['width']}×{roi['height']}",
+                                icon="🎯",
+                            )
+        else:
+            st.image(img, caption="Preview", use_container_width=True)
+
+        # show ROI coords
+        if st.session_state.get("roi_coords"):
+            r = st.session_state.roi_coords
+            st.caption(
+                f"Current ROI → ({r['left']}, {r['top']}) "
+                f"{r['width']}×{r['height']} px"
+            )
+
+        st.markdown("---")
+
+        # DICOM metadata (if any)
+        if (
+            st.session_state.get("is_dicom")
+            and st.session_state.get("dicom_metadata")
+            and display_dicom_metadata
+        ):
+            with st.expander("📄 DICOM Metadata", False):
+                display_dicom_metadata(st.session_state.dicom_metadata)
+
+
+# ──────────────────────────────
+#  RESULTS‑TABS (right column)
+# ──────────────────────────────
+def _render_results_tabs(col):
+    with col:
+        st.subheader("📊 Analysis & Results")
+
+        tabs = st.tabs(
+            [
+                "🔬 Initial",
+                "💬 Q&A",
+                "🩺 Condition",
+                "📈 Confidence",
+                "🌐 Translate",
+                "🧬 UMLS Lookup",
+            ]
+        )
+
+        # ---- Initial Analysis ----
+        with tabs[0]:
+            st.text_area(
+                "Findings",
+                value=st.session_state.get("initial_analysis", "Run *Initial Analysis*."),
+                height=400,
+                disabled=True,
+            )
+            umls = st.session_state.get("initial_analysis_umls", [])
+            if umls:
+                st.markdown("---")
+                st.markdown("**Auto‑Enriched UMLS Concepts:**")
                 if display_umls_concepts:
-                     st.markdown("---")
-                     display_umls_concepts(st.session_state.umls_results)
-                elif st.session_state.get("umls_results"): # Fallback
-                     st.markdown("---")
-                     try: st.json([c.to_dict() for c in st.session_state.umls_results])
-                     except AttributeError: st.json(st.session_state.umls_results)
+                    display_umls_concepts(umls)
+                else:
+                    st.json([c.to_dict() for c in umls])  # type: ignore[attr-defined]
+
+        # ---- Q&A ----
+        with tabs[1]:
+            st.text_area(
+                "Latest Answer",
+                value=st.session_state.get("qa_answer", "Ask a question."),
+                height=180,
+                disabled=True,
+            )
+
+            umls = st.session_state.get("qa_umls", [])
+            if umls:
+                st.markdown("---")
+                st.markdown("**Auto‑Enriched UMLS Concepts (Latest Answer):**")
+                if display_umls_concepts:
+                    display_umls_concepts(umls)
+                else:
+                    st.json([c.to_dict() for c in umls])  # type: ignore[attr-defined]
+
+            # full history
+            st.markdown("---")
+            st.subheader("Conversation History")
+            history = st.session_state.get("history", [])
+            if not history:
+                st.caption("No Q&A yet.")
+            else:
+                for role, msg in reversed(history):
+                    pfx = "👤" if role.lower().startswith("user") else "🤖"
+                    st.markdown(f"**{pfx}**  {msg}", unsafe_allow_html=True)
+                    st.markdown("---")
+
+        # ---- Condition analysis ----
+        with tabs[2]:
+            st.text_area(
+                "Condition Analysis",
+                value=st.session_state.get("disease_analysis", "Run *Condition Analysis*."),
+                height=400,
+                disabled=True,
+            )
+            umls = st.session_state.get("disease_umls", [])
+            if umls:
+                st.markdown("---")
+                st.markdown("**Auto‑Enriched UMLS Concepts:**")
+                if display_umls_concepts:
+                    display_umls_concepts(umls)
+                else:
+                    st.json([c.to_dict() for c in umls])  # type: ignore[attr-defined]
+
+        # ---- Confidence ----
+        with tabs[3]:
+            st.text_area(
+                "Confidence",
+                value=st.session_state.get("confidence_score", "Run *Estimate Confidence*."),
+                height=400,
+                disabled=True,
+            )
+
+        # ---- Translation ----
+        with tabs[4]:
+            st.subheader("🌐 Translate")
+            if not TRANSLATION_AVAILABLE:
+                st.warning("Translation features are unavailable.")
+            else:
+                _render_translation_panel()
+
+        # ---- Manual UMLS Lookup ----
+        with tabs[5]:
+            _render_umls_lookup_panel()
 
 
-def render_main_content(col1, col2):
-    """Renders the main page content within the provided columns."""
-    _render_image_viewer(col1)
-    _render_results_tabs(col2)
+# ──────────────────────────────
+#  Translation panel
+# ──────────────────────────────
+def _render_translation_panel():
+    st.caption("Select text, choose languages, click **Translate**.")
+
+    blocks = {
+        "Initial": st.session_state.get("initial_analysis", ""),
+        "Q&A": st.session_state.get("qa_answer", ""),
+        "Condition": st.session_state.get("disease_analysis", ""),
+        "Confidence": st.session_state.get("confidence_score", ""),
+        "(Custom)": "",
+    }
+    options = [k for k, v in blocks.items() if v.strip() or k == "(Custom)"]
+    choice = st.selectbox("Text block:", options, index=0)
+    text_src = blocks[choice]
+
+    if choice == "(Custom)":
+        text_src = st.text_area("Custom Text", value=text_src, height=120)
+    else:
+        st.text_area("Selected Text", value=text_src, height=120, disabled=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        src_lang = st.selectbox(
+            "Source Language",
+            [AUTO_DETECT_INDICATOR] + sorted(LANGUAGE_CODES.keys()),
+            0,
+        )
+    with col2:
+        tgt_lang = st.selectbox("Target Language", sorted(LANGUAGE_CODES.keys()), 0)
+
+    if st.button("🔄 Translate"):
+        if not text_src.strip():
+            st.warning("No text selected.")
+            return
+        if src_lang == tgt_lang and src_lang != AUTO_DETECT_INDICATOR:
+            st.info("Source and target languages are the same.")
+            st.session_state.translation_result = text_src
+            return
+
+        with st.spinner("Translating…"):
+            try:
+                out = translate(
+                    text=text_src,
+                    target_language=tgt_lang,
+                    source_language=src_lang,
+                )
+                st.session_state.translation_result = out
+                st.success("Translation complete!")
+            except Exception as e:
+                st.error(f"Translation error: {e}")
+                logger.error("Translation error", exc_info=True)
+                st.session_state.translation_result = None
+
+    if st.session_state.get("translation_result"):
+        st.text_area(
+            "Translated Text",
+            value=format_translation(st.session_state.translation_result),
+            height=200,
+            disabled=True,
+        )
+
+
+# ──────────────────────────────
+#  Manual UMLS lookup panel
+# ──────────────────────────────
+def _render_umls_lookup_panel():
+    if not UMLS_AVAILABLE:
+        st.warning("UMLS features are unavailable (no key or import error).")
+        return
+    if search_umls is None:
+        st.error("UMLS search function missing.")
+        return
+
+    term = st.text_input(
+        "Enter a term to look up in UMLS",
+        value=st.session_state.get("lookup_term", ""),
+    )
+    st.session_state.lookup_term = term
+
+    if st.button("Search UMLS"):
+        if not term.strip():
+            st.warning("Please enter a term.")
+        elif not UMLS_APIKEY:
+            st.error("Set **UMLS_APIKEY** in your environment / Space Secrets.")
+        else:
+            with st.spinner("Querying UMLS…"):
+                try:
+                    concepts = search_umls(term, UMLS_APIKEY, DEFAULT_UMLS_HITS)
+                    st.session_state.lookup_results = concepts
+                    if not concepts:
+                        st.info("No concepts found.")
+                except UMLSAuthError as e:
+                    st.error(f"UMLS authentication failed: {e}")
+                except Exception as e:
+                    st.error(f"UMLS search error: {e}")
+                    logger.error("UMLS search error", exc_info=True)
+
+    # display results
+    if st.session_state.get("lookup_results"):
+        st.markdown("---")
+        if display_umls_concepts:
+            display_umls_concepts(st.session_state.lookup_results)
+        else:
+            st.json([c.to_dict() for c in st.session_state.lookup_results])  # type: ignore[attr-defined]
+
+
+# ──────────────────────────────
+#  Public entry point
+# ──────────────────────────────
+def render_main_content(col_left, col_right):
+    """Render left (image viewer) and right (tabs) columns."""
+    _render_image_viewer(col_left)
+    _render_results_tabs(col_right)
