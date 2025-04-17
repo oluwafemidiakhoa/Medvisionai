@@ -536,31 +536,42 @@ if uploaded_file is not None:
 
     if new_file_info != st.session_state.get("uploaded_file_info"):
         logger.info(f"New file uploaded: {uploaded_file.name} ({uploaded_file.size} bytes)")
-        # ...
+        st.toast(f"Processing '{uploaded_file.name}'...", icon="⏳")
 
-        # PROBLEM AREA: Resetting state *after* file uploader widget was drawn
-        keys_to_preserve = {"file_uploader_widget", "session_id", "uploaded_file_info", "demo_loaded"} # Includes the widget key
-        keys_to_preserve.add("umls_search_term")
-        # ... (add other keys) ...
+        # --- FIX: REMOVE 'file_uploader_widget' from keys_to_preserve ---
+        keys_to_preserve = {
+            "session_id",
+            "uploaded_file_info",
+            "demo_loaded",
+            # Add other non-widget keys you absolutely need to keep
+            "umls_search_term",
+            "umls_results",
+            "umls_error",
+        }
+        # DO NOT add "file_uploader_widget" here.
 
+        # Store values you want to keep *before* resetting
         preserved_values = {k: st.session_state.get(k) for k in keys_to_preserve}
-        # This loop is generally fine as it avoids preserved keys
-        for key, value in DEFAULT_STATE.items():
+
+        # Reset all keys defined in DEFAULT_STATE that are NOT in keys_to_preserve
+        for key, default_value in DEFAULT_STATE.items():
             if key not in keys_to_preserve:
-                 st.session_state[key] = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
+                # Use deepcopy for mutable defaults like lists/dicts
+                st.session_state[key] = copy.deepcopy(default_value) if isinstance(default_value, (dict, list)) else default_value
 
-        # THIS LOOP CAUSES THE ERROR:
-        # It tries to write back the value for "file_uploader_widget"
+        # Restore the specific application state values you explicitly preserved
+        # This loop is now safe because it no longer includes widget keys.
         for k, v in preserved_values.items():
-            st.session_state[k] = v  # <--- Error when k == "file_uploader_widget"
+            st.session_state[k] = v
 
-        # ... (rest of file processing) ...
+        # --- End of Fix ---
 
-        st.session_state.uploaded_file_info = new_file_info
-        st.session_state.demo_loaded = False
+        st.session_state.uploaded_file_info = new_file_info # Set the *new* file info marker
+        st.session_state.demo_loaded = False # Turn off demo mode if a file is uploaded
 
         st.session_state.raw_image_bytes = uploaded_file.getvalue()
         file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+        # ... (rest of the file processing logic remains the same) ...
         st.session_state.is_dicom = (
             PYDICOM_AVAILABLE and DICOM_UTILS_AVAILABLE and
             ("dicom" in uploaded_file.type.lower() or file_ext in (".dcm", ".dicom"))
