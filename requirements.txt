@@ -40,3 +40,9 @@ requests>=2.28.0
 scispacy>=0.5.1
 spacy>=3.5.0
 fpdf2>=2.6.0
+
+
+pillow>=10.0
+deep-translator>=1.11.4
+requests>=2.31.0
+
