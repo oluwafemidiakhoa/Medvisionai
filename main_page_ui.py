@@ -1,46 +1,42 @@
 # main_page_ui.py
 import streamlit as st
 import logging
-import os # Needed for getenv in manual UMLS lookup
+import os
 from PIL import Image, ImageDraw
 
-# Import UI components and check availability
-try: from ui_components import display_dicom_metadata, display_umls_concepts, UI_COMPONENTS_AVAILABLE
-except ImportError: UI_COMPONENTS_AVAILABLE = False; display_dicom_metadata=None; display_umls_concepts=None
+# --- Import specific UI components needed ---
+# Define fallbacks if imports fail
+try: from ui_components import display_dicom_metadata
+except ImportError: display_dicom_metadata = None; logger.warning("display_dicom_metadata not imported.")
+try: from ui_components import display_umls_concepts
+except ImportError: display_umls_concepts = None; logger.warning("display_umls_concepts not imported.")
+# --- End UI Component Imports ---
 
-# Import canvas if available
 try: from streamlit_drawable_canvas import st_canvas; DRAWABLE_CANVAS_AVAILABLE = True
 except ImportError: st_canvas = None; DRAWABLE_CANVAS_AVAILABLE = False
 
-# Import translation helpers if needed within tabs
 try: from translation_models import TRANSLATION_AVAILABLE, LANGUAGE_CODES, AUTO_DETECT_INDICATOR, translate
 except ImportError: TRANSLATION_AVAILABLE = False; LANGUAGE_CODES={"En":"en"}; AUTO_DETECT_INDICATOR="Auto"; translate=None
 
-# --- UMLS Specific Imports for Manual Lookup ---
 try: from umls_utils import search_umls, UMLSAuthError, UMLSConcept, UMLS_APIKEY, UMLS_AVAILABLE
 except ImportError: UMLS_AVAILABLE = False; search_umls=None; UMLSAuthError=RuntimeError; UMLSConcept=None; UMLS_APIKEY=None
 try: from config import DEFAULT_UMLS_HITS
 except ImportError: DEFAULT_UMLS_HITS = 5
-# --- End UMLS Imports ---
 
-# Import helper from session_state (assuming it's defined there)
-# If not, define format_translation locally or import from elsewhere
 try: from session_state import format_translation
-except ImportError:
-    def format_translation(t): return str(t) if t else "" # Simple fallback
-
+except ImportError: def format_translation(t): return str(t) if t else ""
 
 logger = logging.getLogger(__name__)
 
 def _render_image_viewer(column):
     """Renders the image viewer (canvas or static image) and metadata."""
-    # (Keep existing _render_image_viewer logic - No changes needed here)
     with column:
         st.subheader("🖼️ Image Viewer")
         display_img = st.session_state.get("display_image")
         if isinstance(display_img, Image.Image):
             logger.debug("Rendering image viewer...")
             if DRAWABLE_CANVAS_AVAILABLE and st_canvas:
+                # (Keep canvas logic as is)
                 st.caption("Draw rectangle for ROI.")
                 MAX_W, MAX_H = 600, 500; img_w, img_h = display_img.size
                 if img_w <= 0 or img_h <= 0: st.warning("Invalid image size.")
@@ -59,11 +55,17 @@ def _render_image_viewer(column):
                                 new_roi = {"left":ol, "top":ot, "width":ow, "height":oh}
                                 if st.session_state.get("roi_coords") != new_roi: st.session_state.roi_coords=new_roi; st.session_state.canvas_drawing=canvas_result.json_data; logger.info(f"ROI set: {new_roi}"); st.info(f"ROI Set: ({ol},{ot}), Size: {ow}x{oh}", icon="🎯")
             else: st.image(display_img, caption="Preview", use_container_width=True)
+
             if st.session_state.get("roi_coords"): r = st.session_state.roi_coords; st.caption(f"ROI: ({r['left']},{r['top']})-W:{r['width']},H:{r['height']}")
             st.markdown("---")
+
+            # --- Check if display_dicom_metadata function is available ---
             if st.session_state.get("is_dicom") and st.session_state.get("dicom_metadata"):
-                if UI_COMPONENTS_AVAILABLE and display_dicom_metadata: display_dicom_metadata(st.session_state.dicom_metadata)
-                else: st.json(st.session_state.dicom_metadata)
+                if display_dicom_metadata: # Check if function exists
+                    display_dicom_metadata(st.session_state.dicom_metadata)
+                else:
+                    st.json(st.session_state.dicom_metadata) # Simple fallback
+
         elif st.session_state.get("uploaded_file_info") and not display_img: st.error("❌ Image preview unavailable (processing failed).")
         else: st.info("⬅️ Upload an image or use Demo Mode.")
 
@@ -72,60 +74,52 @@ def _render_results_tabs(column):
     """Renders the analysis results tabs, including UMLS sections."""
     with column:
         st.subheader("📊 Analysis & Results")
-        # --- Updated Tab Titles ---
         tab_titles = ["🔬 Initial", "💬 Q&A", "🩺 Condition", "📈 Confidence", "🌐 Translate", "🧬 UMLS Lookup"]
         tabs = st.tabs(tab_titles)
 
         # --- Initial Analysis Tab (with UMLS) ---
         with tabs[0]:
             st.text_area("Findings", value=st.session_state.get("initial_analysis", "Run Initial Analysis."), height=400, disabled=True, key="init_disp")
-            # Display auto-enriched concepts
-            if UI_COMPONENTS_AVAILABLE and display_umls_concepts and st.session_state.get("initial_analysis_umls"):
-                st.markdown("---") # Separator
-                st.markdown("**Auto‑Enriched UMLS Concepts:**")
+            # Check if display_umls_concepts function is available AND if there are results
+            if display_umls_concepts and st.session_state.get("initial_analysis_umls"):
+                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts:**")
                 display_umls_concepts(st.session_state.initial_analysis_umls)
-            elif st.session_state.get("initial_analysis_umls"): # Fallback display
-                st.markdown("---")
-                st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
-                st.json([c.to_dict() for c in st.session_state.initial_analysis_umls])
-
+            elif st.session_state.get("initial_analysis_umls"): # Fallback display if function missing but results exist
+                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
+                try: st.json([c.to_dict() for c in st.session_state.initial_analysis_umls]) # Use to_dict if available
+                except AttributeError: st.json(st.session_state.initial_analysis_umls) # Display raw list/dict otherwise
 
         # --- Q&A Tab (with UMLS) ---
         with tabs[1]:
             st.text_area("Latest Answer", value=st.session_state.get("qa_answer", "Ask a question."), height=150, disabled=True, key="qa_disp")
-             # Display auto-enriched concepts for the latest answer
-            if UI_COMPONENTS_AVAILABLE and display_umls_concepts and st.session_state.get("qa_umls"):
-                st.markdown("---") # Separator
-                st.markdown("**Auto‑Enriched UMLS Concepts (Latest Answer):**")
+            # Check if display_umls_concepts function is available AND if there are results
+            if display_umls_concepts and st.session_state.get("qa_umls"):
+                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Latest Answer):**")
                 display_umls_concepts(st.session_state.qa_umls)
             elif st.session_state.get("qa_umls"): # Fallback display
-                 st.markdown("---")
-                 st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
-                 st.json([c.to_dict() for c in st.session_state.qa_umls])
+                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
+                 try: st.json([c.to_dict() for c in st.session_state.qa_umls])
+                 except AttributeError: st.json(st.session_state.qa_umls)
 
             # Q&A History display (remains the same)
             st.markdown("---"); st.subheader("History")
             history = st.session_state.get("history", [])
-            if history:
-                for i, (qt, m) in enumerate(reversed(history)):
-                    pfx = "👤:" if qt.lower().startswith("user") else "🤖:" if qt.lower().startswith("ai") else "ℹ️:" if qt.lower().startswith("sys") else f"**{qt}:**"
-                    unsafe = "ai" in qt.lower()
-                    st.markdown(f"{pfx} {m}", unsafe_allow_html=unsafe)
-                    if i < len(history)-1: st.markdown("---")
+            if history: # (Keep history display logic)
+                 for i, (qt, m) in enumerate(reversed(history)): pfx = "👤:" if qt.lower().startswith("user") else "🤖:" if qt.lower().startswith("ai") else "ℹ️:" if qt.lower().startswith("sys") else f"**{qt}:**"; unsafe = "ai" in qt.lower(); st.markdown(f"{pfx} {m}", unsafe_allow_html=unsafe);
+                 if i < len(history)-1: st.markdown("---")
             else: st.caption("No Q&A yet.")
 
         # --- Condition Tab (with UMLS) ---
         with tabs[2]:
             st.text_area("Condition Analysis", value=st.session_state.get("disease_analysis", "Run Condition Analysis."), height=400, disabled=True, key="dis_disp")
-            # Display auto-enriched concepts
-            if UI_COMPONENTS_AVAILABLE and display_umls_concepts and st.session_state.get("disease_umls"):
-                st.markdown("---") # Separator
-                st.markdown("**Auto‑Enriched UMLS Concepts:**")
+            # Check if display_umls_concepts function is available AND if there are results
+            if display_umls_concepts and st.session_state.get("disease_umls"):
+                st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts:**")
                 display_umls_concepts(st.session_state.disease_umls)
             elif st.session_state.get("disease_umls"): # Fallback display
-                 st.markdown("---")
-                 st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
-                 st.json([c.to_dict() for c in st.session_state.disease_umls])
+                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
+                 try: st.json([c.to_dict() for c in st.session_state.disease_umls])
+                 except AttributeError: st.json(st.session_state.disease_umls)
 
         # --- Confidence Tab ---
         with tabs[3]:
@@ -133,17 +127,16 @@ def _render_results_tabs(column):
 
         # --- Translation Tab ---
         with tabs[4]:
-            # (Keep existing Translation tab logic - No changes needed here)
+            # (Keep existing Translation tab logic)
             st.subheader("🌐 Translate")
             if not TRANSLATION_AVAILABLE: st.warning("Translation unavailable.")
-            else:
+            else: # (Keep translation UI logic)
                 st.caption("Select text, languages, translate.")
                 txt_opts = {"Initial": st.session_state.get("initial_analysis"), "Q&A": st.session_state.get("qa_answer"), "Condition": st.session_state.get("disease_analysis"), "Confidence": st.session_state.get("confidence_score"), "(Custom)": ""}
                 avail_opts = {lbl: txt for lbl, txt in txt_opts.items() if (txt and txt.strip()) or lbl == "(Custom)"}
                 if not avail_opts: st.info("No text to translate.")
                 else:
-                    sel_lbl = st.selectbox("Translate:", list(avail_opts.keys()), 0, key="trans_sel")
-                    txt_to_trans = avail_opts.get(sel_lbl, "")
+                    sel_lbl = st.selectbox("Translate:", list(avail_opts.keys()), 0, key="trans_sel"); txt_to_trans = avail_opts.get(sel_lbl, "")
                     if sel_lbl == "(Custom)": txt_to_trans = st.text_area("Custom text:", "", 100, key="trans_cust_in")
                     else: st.text_area("Selected:", txt_to_trans, 100, disabled=True, key="trans_sel_disp")
                     cl1, cl2 = st.columns(2)
@@ -159,66 +152,50 @@ def _render_results_tabs(column):
                         else:
                             with st.spinner("Translating..."):
                                 try:
-                                    # Ensure translate function is available before calling
                                     if translate: out=translate(text=txt_to_trans, target_language=tgt_lang, source_language=src_lang)
-                                    else: raise RuntimeError("Translate function not loaded")
+                                    else: raise RuntimeError("Translate fn missing")
                                     if out is not None: st.session_state.translation_result=out; st.success("OK!")
                                     else: st.error("No result."); st.session_state.translation_error="None."
                                 except Exception as e: st.error(f"Fail:{e}"); st.session_state.translation_error=str(e)
                     if st.session_state.get("translation_result"): st.text_area("Result:", format_translation(st.session_state.translation_result), 200, key="trans_out")
 
+
         # --- UMLS Lookup Tab ---
         with tabs[5]:
             st.subheader("🧬 UMLS Manual Lookup")
-            if not UMLS_AVAILABLE:
-                st.warning("UMLS features unavailable (check API key / utils).")
-            elif not search_umls: # Check if function itself is loaded
-                 st.error("UMLS search function is unavailable.")
+            # Check UMLS availability directly
+            if not UMLS_AVAILABLE: st.warning("UMLS features unavailable.")
+            elif not search_umls: st.error("UMLS search function unavailable.") # Check function too
             else:
-                term = st.text_input(
-                    "Enter term to search UMLS:",
-                    value=st.session_state.get("umls_search_term", ""), # Use state for persistence
-                    key="umls_manual_term_input"
-                )
-                # Update state immediately on input change for persistence
-                st.session_state.umls_search_term = term
+                term = st.text_input("Enter term to search UMLS:", value=st.session_state.get("umls_search_term", ""), key="umls_manual_term_input")
+                st.session_state.umls_search_term = term # Persist input
 
                 if st.button("Search UMLS", key="umls_manual_search_btn"):
-                    manual_search_term = term.strip() # Use current value from input widget
-                    st.session_state.umls_results = None # Clear previous results for manual search
-                    st.session_state.umls_error = None   # Clear previous error
+                    manual_search_term = term.strip()
+                    # Clear only manual results/errors here
+                    st.session_state.umls_results = None
+                    st.session_state.umls_error = None
 
-                    if not manual_search_term:
-                        st.warning("Please enter a lookup term.")
-                    elif not UMLS_APIKEY:
-                        st.error("UMLS_APIKEY environment variable not set.")
-                        logger.error("Manual UMLS search failed: API key missing.")
+                    if not manual_search_term: st.warning("Please enter lookup term.")
+                    elif not UMLS_APIKEY: st.error("UMLS_APIKEY not set."); logger.error("Manual UMLS search: API key missing.")
                     else:
                         with st.spinner("Querying UMLS..."):
-                            try:
-                                concepts = search_umls(
-                                    manual_search_term,
-                                    UMLS_APIKEY,
-                                    page_size=DEFAULT_UMLS_HITS
-                                )
-                                # Store results in state to display *below* button
-                                st.session_state.umls_results = concepts
-                                logger.info(f"Manual UMLS search for '{manual_search_term}' found {len(concepts)} results.")
-                                if not concepts:
-                                    st.info("No concepts found for this term.")
-                            except UMLSAuthError as e:
-                                err_msg = f"UMLS Auth Error: {e}"; st.error(err_msg); logger.error(err_msg); st.session_state.umls_error = err_msg
-                            except Exception as e:
-                                err_msg = f"UMLS Search Error: {e}"; st.error(err_msg); logger.error(err_msg, exc_info=True); st.session_state.umls_error = err_msg
+                            try: concepts = search_umls(manual_search_term, UMLS_APIKEY, page_size=DEFAULT_UMLS_HITS)
+                            st.session_state.umls_results = concepts # Store results
+                            logger.info(f"Manual UMLS found {len(concepts)} concepts.")
+                            if not concepts: st.info("No concepts found.")
+                            except UMLSAuthError as e: err=f"UMLS Auth Error: {e}"; st.error(err); st.session_state.umls_error = err
+                            except Exception as e: err=f"UMLS Search Error: {e}"; st.error(err); logger.error(err, exc_info=True); st.session_state.umls_error = err
 
-            # Display manual search results (if any) below the button
-            if st.session_state.get("umls_results") is not None: # Check if results exist (even empty list)
-                if UI_COMPONENTS_AVAILABLE and display_umls_concepts:
+            # Display results if they exist (check function availability again)
+            if st.session_state.get("umls_results") is not None:
+                if display_umls_concepts: # Check if display function exists
                      st.markdown("---")
                      display_umls_concepts(st.session_state.umls_results)
-                elif st.session_state.get("umls_results"): # Fallback display
+                elif st.session_state.get("umls_results"): # Fallback
                      st.markdown("---")
-                     st.json([c.to_dict() for c in st.session_state.umls_results])
+                     try: st.json([c.to_dict() for c in st.session_state.umls_results])
+                     except AttributeError: st.json(st.session_state.umls_results)
 
 
 def render_main_content(col1, col2):
