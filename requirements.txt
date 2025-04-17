@@ -43,6 +43,17 @@ fpdf2>=2.6.0
 
 
 pillow>=10.0
-deep-translator>=1.11.4
+deep-translator
 requests>=2.31.0
+# requirements.txt
+
+
+
+# API interactions & web requests
+requests>=2.25.0
+
+# Image processing
+Pillow>=9.0.0
+
+
 
