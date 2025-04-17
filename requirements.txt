@@ -1,39 +1,44 @@
-# Core Framework
-streamlit==1.44.1
+################################################################################
+# RadVision AI Advanced – Requirements
+# (pin critical libs; leave others open to patch versions unless specified)
+################################################################################
 
-# UI Components
-streamlit-drawable-canvas
+# ── Core framework ────────────────────────────────────────────────────────────
+streamlit==1.44.1                  # UI framework (keep exact)
 
-# Image & DICOM Processing
-Pillow==11.1.0
-pydicom==3.0.1
-pylibjpeg
-pylibjpeg-libjpeg
-python-gdcm
+# ── UI widgets / drawing ─────────────────────────────────────────────────────
+streamlit-drawable-canvas==0.9.3   # pin a tested version (update if you test)
 
-# AI / Machine Learning Core
+# ── Image & DICOM processing ─────────────────────────────────────────────────
+Pillow==11.1.0                     # image I/O & processing (exact, from logs)
+pydicom==3.0.1                     # DICOM parsing
+pylibjpeg                          # JPEG‑compressed DICOM support
+pylibjpeg-libjpeg                  # backend needed by pylibjpeg
+python-gdcm                        # alternative DICOM codecs (optional)
+
+# ── AI / ML core (Hugging Face ecosystem) ────────────────────────────────────
 transformers>=4.30.0
 torch>=2.0.0
-sentencepiece
-accelerate
+sentencepiece                      # tokenizer dependency
+accelerate                         # efficient model loading
 
-# Translation Service
-deep-translator==1.11.4
+# ── NLP / UMLS helpers ───────────────────────────────────────────────────────
+scispacy>=0.5.1                    # biomedical NLP models
+spacy>=3.5.0                       # required by scispacy
+umls-api-client                    # thin helper for direct UMLS REST calls
 
-# Utilities & Core Dependencies
-numpy>=1.23
-requests>=2.31.0
-protobuf<4
-pyyaml>=6.0
-google-generativeai
+# ── Translation backend ──────────────────────────────────────────────────────
+deep-translator==1.11.4            # **critical**: matches our workaround code
 
-# Report Generation
-fpdf2>=2.6.0
+# ── PDF / reporting ──────────────────────────────────────────────────────────
+fpdf2>=2.6.0                       # PDF generation (newer fork of fpdf)
 
-# Clinical NLP / UMLS & ScispaCy
-spacy>=3.5.0
-scispacy>=0.5.1
-umls-api-client
+# ── Networking / utilities ───────────────────────────────────────────────────
+requests>=2.28.0                   # HTTP calls (HF hub, UMLS, Gemini)
+numpy>=1.23                        # numeric backbone
+protobuf<4                         # HF pin (avoid breaking change)
+PyYAML>=6.0                        # config parsing
 
-# (Optional) Additional Dependencies
-# multiprocessing, logging, etc.
+################################################################################
+# End of file – add extras below if your custom modules require them
+################################################################################
