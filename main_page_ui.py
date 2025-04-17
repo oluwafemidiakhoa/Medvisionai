@@ -3,11 +3,12 @@ import streamlit as st
 import logging
 import os
 from PIL import Image, ImageDraw
+from typing import Optional # Added for format_translation hint
 
 # --- Import specific UI components needed ---
 # Define fallbacks if imports fail
 try: from ui_components import display_dicom_metadata
-except ImportError: display_dicom_metadata = None; logging.warning("display_dicom_metadata not imported.") # Use logging directly
+except ImportError: display_dicom_metadata = None; logging.warning("display_dicom_metadata not imported.")
 try: from ui_components import display_umls_concepts
 except ImportError: display_umls_concepts = None; logging.warning("display_umls_concepts not imported.")
 # --- End UI Component Imports ---
@@ -29,12 +30,10 @@ try:
     logging.info("Imported format_translation from session_state.")
 except ImportError:
     logging.warning("Could not import format_translation from session_state. Using basic fallback.")
-    # Define fallback function HERE, outside the except block's direct execution
     def format_translation(t: Optional[str]) -> str:
         """Basic fallback for formatting translation."""
         return str(t) if t else ""
 # --- End format_translation definition ---
-
 
 logger = logging.getLogger(__name__) # Initialize logger after potential logging warnings
 
@@ -80,28 +79,25 @@ def _render_results_tabs(column):
         tab_titles = ["🔬 Initial", "💬 Q&A", "🩺 Condition", "📈 Confidence", "🌐 Translate", "🧬 UMLS Lookup"]
         tabs = st.tabs(tab_titles)
 
-        # --- Initial Analysis Tab (with UMLS) ---
-        with tabs[0]:
+        with tabs[0]: # Initial Analysis
             st.text_area("Findings", value=st.session_state.get("initial_analysis", "Run Initial Analysis."), height=400, disabled=True, key="init_disp")
             if display_umls_concepts and st.session_state.get("initial_analysis_umls"):
                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts:**")
                 display_umls_concepts(st.session_state.initial_analysis_umls)
-            elif st.session_state.get("initial_analysis_umls"): # Fallback
+            elif st.session_state.get("initial_analysis_umls"):
                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
                 try: st.json([c.to_dict() for c in st.session_state.initial_analysis_umls])
                 except AttributeError: st.json(st.session_state.initial_analysis_umls)
 
-        # --- Q&A Tab (with UMLS) ---
-        with tabs[1]:
+        with tabs[1]: # Q&A
             st.text_area("Latest Answer", value=st.session_state.get("qa_answer", "Ask a question."), height=150, disabled=True, key="qa_disp")
             if display_umls_concepts and st.session_state.get("qa_umls"):
                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Latest Answer):**")
                 display_umls_concepts(st.session_state.qa_umls)
-            elif st.session_state.get("qa_umls"): # Fallback
+            elif st.session_state.get("qa_umls"):
                  st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
                  try: st.json([c.to_dict() for c in st.session_state.qa_umls])
                  except AttributeError: st.json(st.session_state.qa_umls)
-            # Q&A History display
             st.markdown("---"); st.subheader("History")
             history = st.session_state.get("history", [])
             if history:
@@ -109,23 +105,20 @@ def _render_results_tabs(column):
                  if i < len(history)-1: st.markdown("---")
             else: st.caption("No Q&A yet.")
 
-        # --- Condition Tab (with UMLS) ---
-        with tabs[2]:
+        with tabs[2]: # Condition
             st.text_area("Condition Analysis", value=st.session_state.get("disease_analysis", "Run Condition Analysis."), height=400, disabled=True, key="dis_disp")
             if display_umls_concepts and st.session_state.get("disease_umls"):
                 st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts:**")
                 display_umls_concepts(st.session_state.disease_umls)
-            elif st.session_state.get("disease_umls"): # Fallback
+            elif st.session_state.get("disease_umls"):
                  st.markdown("---"); st.markdown("**Auto‑Enriched UMLS Concepts (Raw):**")
                  try: st.json([c.to_dict() for c in st.session_state.disease_umls])
                  except AttributeError: st.json(st.session_state.disease_umls)
 
-        # --- Confidence Tab ---
-        with tabs[3]:
+        with tabs[3]: # Confidence
              st.text_area("Confidence", value=st.session_state.get("confidence_score", "Run Confidence Estimation."), height=400, disabled=True, key="conf_disp")
 
-        # --- Translation Tab ---
-        with tabs[4]:
+        with tabs[4]: # Translation
             st.subheader("🌐 Translate")
             if not TRANSLATION_AVAILABLE: st.warning("Translation unavailable.")
             else:
@@ -150,12 +143,12 @@ def _render_results_tabs(column):
                         else:
                             with st.spinner("Translating..."):
                                 try:
-                                    if translate: out=translate(text=txt_to_trans, target_language=tgt_lang, source_language=src_lang) # Adjusted signature assumption
+                                    if translate: out=translate(text=txt_to_trans, target_language=tgt_lang, source_language=src_lang)
                                     else: raise RuntimeError("Translate fn missing")
                                     if out is not None: st.session_state.translation_result=out; st.success("OK!")
                                     else: st.error("No result."); st.session_state.translation_error="None."
                                 except Exception as e: st.error(f"Fail:{e}"); st.session_state.translation_error=str(e)
-                    if st.session_state.get("translation_result"): st.text_area("Result:", format_translation(st.session_state.translation_result), 200, key="trans_out") # Use format_translation here
+                    if st.session_state.get("translation_result"): st.text_area("Result:", format_translation(st.session_state.translation_result), 200, key="trans_out")
 
         # --- UMLS Lookup Tab ---
         with tabs[5]:
@@ -171,14 +164,22 @@ def _render_results_tabs(column):
                     elif not UMLS_APIKEY: st.error("UMLS_APIKEY not set."); logger.error("Manual UMLS search: API key missing.")
                     else:
                         with st.spinner("Querying UMLS..."):
-                            try: concepts = search_umls(manual_search_term, UMLS_APIKEY, page_size=DEFAULT_UMLS_HITS)
-                            st.session_state.umls_results = concepts; logger.info(f"Manual UMLS found {len(concepts)} concepts.")
-                            if not concepts: st.info("No concepts found.")
-                            except UMLSAuthError as e: err=f"UMLS Auth Error: {e}"; st.error(err); st.session_state.umls_error = err
-                            except Exception as e: err=f"UMLS Search Error: {e}"; st.error(err); logger.error(err, exc_info=True); st.session_state.umls_error = err
+                            # --- Corrected try...except block ---
+                            try: # START try
+                                concepts = search_umls(manual_search_term, UMLS_APIKEY, page_size=DEFAULT_UMLS_HITS)
+                                st.session_state.umls_results = concepts # Store results
+                                logger.info(f"Manual UMLS found {len(concepts)} concepts for '{manual_search_term}'.")
+                                if not concepts:
+                                    st.info("No concepts found for this term.")
+                            except UMLSAuthError as e: # Correctly indented except
+                                err_msg = f"UMLS Auth Error: {e}"; st.error(err_msg); st.session_state.umls_error = err_msg; logger.error(err_msg)
+                            except Exception as e: # Correctly indented except
+                                err_msg = f"UMLS Search Error: {e}"; st.error(err_msg); st.session_state.umls_error = err_msg; logger.error(err_msg, exc_info=True)
+                            # --- End corrected block ---
+
             # Display manual search results
             if st.session_state.get("umls_results") is not None:
-                if display_umls_concepts: # Check if display function exists
+                if display_umls_concepts:
                      st.markdown("---")
                      display_umls_concepts(st.session_state.umls_results)
                 elif st.session_state.get("umls_results"): # Fallback
