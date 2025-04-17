@@ -1,44 +1,36 @@
-################################################################################
-# RadVision AI Advanced – Requirements
-# (pin critical libs; leave others open to patch versions unless specified)
-################################################################################
+# ───────── Core UI ─────────
+streamlit==1.44.1
+streamlit-drawable-canvas==0.9.3      # last tested
 
-# ── Core framework ────────────────────────────────────────────────────────────
-streamlit==1.44.1                  # UI framework (keep exact)
+# ───────── Imaging ─────────
+Pillow==11.1.0
 
-# ── UI widgets / drawing ─────────────────────────────────────────────────────
-streamlit-drawable-canvas==0.9.3   # pin a tested version (update if you test)
+# ───────── DICOM ──────────
+pydicom==3.0.1
+pylibjpeg
+pylibjpeg-libjpeg
+python-gdcm
 
-# ── Image & DICOM processing ─────────────────────────────────────────────────
-Pillow==11.1.0                     # image I/O & processing (exact, from logs)
-pydicom==3.0.1                     # DICOM parsing
-pylibjpeg                          # JPEG‑compressed DICOM support
-pylibjpeg-libjpeg                  # backend needed by pylibjpeg
-python-gdcm                        # alternative DICOM codecs (optional)
-
-# ── AI / ML core (Hugging Face ecosystem) ────────────────────────────────────
-transformers>=4.30.0
+# ───────── AI / HF stack ───
 torch>=2.0.0
-sentencepiece                      # tokenizer dependency
-accelerate                         # efficient model loading
+transformers>=4.38.0
+accelerate>=0.24.0
+sentencepiece
+scipy
+numpy>=1.23
 
-# ── NLP / UMLS helpers ───────────────────────────────────────────────────────
-scispacy>=0.5.1                    # biomedical NLP models
-spacy>=3.5.0                       # required by scispacy
-umls-api-client                    # thin helper for direct UMLS REST calls
+# ───────── Translation ─────
+deep-translator==1.11.4   # ★ keep pinned
 
-# ── Translation backend ──────────────────────────────────────────────────────
-deep-translator==1.11.4            # **critical**: matches our workaround code
+# ───────── UMLS helpers ────
+umls-api-client           # lightweight REST helper
+scispacy>=0.5.1
+spacy>=3.5.0
 
-# ── PDF / reporting ──────────────────────────────────────────────────────────
-fpdf2>=2.6.0                       # PDF generation (newer fork of fpdf)
+# ───────── PDF reports ─────
+fpdf2>=2.6.0
 
-# ── Networking / utilities ───────────────────────────────────────────────────
-requests>=2.28.0                   # HTTP calls (HF hub, UMLS, Gemini)
-numpy>=1.23                        # numeric backbone
-protobuf<4                         # HF pin (avoid breaking change)
-PyYAML>=6.0                        # config parsing
-
-################################################################################
-# End of file – add extras below if your custom modules require them
-################################################################################
+# ───────── Misc ────────────
+requests>=2.31.0
+protobuf<4
+pyyaml>=6.0
