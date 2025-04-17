@@ -10,23 +10,32 @@ DEFAULT_STATE = {
     "confidence_score": "", "last_action": None, "pdf_report_bytes": None,
     "canvas_drawing": None, "roi_coords": None, "current_display_wc": None,
     "current_display_ww": None, "clear_roi_feedback": False, "demo_loaded": False,
-    "translation_result": None, "translation_error": None, "umls_search_term": "",
-    "umls_results": None, "umls_error": None,
+    "translation_result": None, "translation_error": None,
+    # --- UMLS Specific State ---
+    "umls_search_term": "",     # For manual lookup input
+    "umls_results": None,       # For manual lookup results (or could display directly)
+    "umls_error": None,         # For manual lookup error
+    "initial_analysis_umls": [],# UMLS concepts from initial analysis text
+    "qa_umls": [],              # UMLS concepts from latest Q&A answer
+    "disease_umls": [],         # UMLS concepts from disease analysis text
+    # --- End UMLS ---
 }
 
 # --- Sidebar Options ---
-TIPS = [
+TIPS = [ # (Keep existing TIPS)
     "Tip: Use 'Demo Mode' for a quick walkthrough.", "Tip: Draw an ROI rectangle.",
     "Tip: Adjust DICOM W/L.", "Tip: Ask follow-up questions.", "Tip: Generate a PDF report.",
     "Tip: Use 'Translation' tab.", "Tip: Clear the ROI.", "Tip: Use 'UMLS Lookup'."
 ]
-
-DISEASE_OPTIONS = [
+DISEASE_OPTIONS = [ # (Keep existing options)
     "Pneumonia", "Lung Cancer", "Nodule/Mass", "Effusion", "Fracture", "Stroke",
     "Appendicitis", "Bowel Obstruction", "Cardiomegaly", "Aortic Aneurysm",
     "Pulmonary Embolism", "Tuberculosis", "COVID-19", "Brain Tumor",
     "Arthritis", "Osteoporosis", "Other..."
 ]
+
+# --- UMLS Configuration ---
+DEFAULT_UMLS_HITS = 5 # Number of concepts to fetch/display
 
 # --- Logging ---
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -34,8 +43,7 @@ LOG_FORMAT = '%(asctime)s - %(levelname)s - [%(name)s:%(funcName)s:%(lineno)d] -
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 # --- CSS Styling ---
-# (Keep the CSS string here)
-APP_CSS = """
+APP_CSS = """ # (Keep existing CSS)
     <style>
       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f6; }
       .main .block-container { padding: 2rem 1.5rem; }
@@ -58,7 +66,7 @@ APP_CSS = """
     """
 
 # --- Footer ---
-FOOTER_MARKDOWN = """
+FOOTER_MARKDOWN = """ # (Keep existing Footer)
     <footer>
       <p>RadVision AI is for informational/educational use ONLY. Not medical advice.</p>
       <p> <a href="#" target="_blank">Privacy</a> | <a href="#" target="_blank">Terms</a> | <a href="https://github.com/mgbam/radvisionai" target="_blank">GitHub</a> </p>
