@@ -74,33 +74,42 @@ log.debug("Session initialised → ID %s", get_sid())
 # ────────────────────────────  global CSS  ────────────────────────────
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
-# ─────────────────────  monkey‑patch for streamlit‑canvas  ────────────
+# ─────────────────────  monkey‑patch for canvas  ──────────────────────
 import streamlit.elements.image as _st_img  # noqa: WPS433
 
-if not hasattr(_st_img, "image_to_url") and PIL_AVAILABLE:
-    def _img_to_url(img: Any, *_, **__) -> str:                           # noqa: D401
-        if not isinstance(img, Image):
-            log.warning("Patch: object %s not a PIL Image", type(img))
+try:  # try / except keeps the Space alive even if Pillow is absent
+    from PIL import Image as _PILImage
+    _PIL_OK = True
+except ImportError:
+    _PIL_OK = False
+    _PILImage = None  # type: ignore
+
+if not hasattr(_st_img, "image_to_url") and _PIL_OK:
+
+    def _image_to_url(img: Any, *_, **__) -> str:                         # noqa: D401
+        # guard: we need a *real* PIL.Image.Image instance
+        if not isinstance(img, _PILImage.Image):    # ← fix here
             return ""
+
+        import io, base64
         buf = io.BytesIO()
         fmt = (img.format or "PNG").upper()
+
+        # safety conversions
         if img.mode == "P":
             img = img.convert("RGBA")
+            fmt = "PNG"
         if img.mode == "RGBA" and fmt == "JPEG":
             fmt = "PNG"
-        if img.mode not in ("RGB", "L"):
+        if img.mode not in ("RGB", "L"):            # L == greyscale
             img = img.convert("RGB")
+
         img.save(buf, format=fmt)
         b64 = base64.b64encode(buf.getvalue()).decode()
         return f"data:image/{fmt.lower()};base64,{b64}"
-    _st_img.image_to_url = _img_to_url        # type: ignore[attr-defined]
-    log.info("Applied image→data‑URL monkey‑patch")
-elif not PIL_AVAILABLE:
-    log.warning("Pillow missing – drawable‑canvas will not work")
 
-# ─────────────────────────────  SIDEBAR  ──────────────────────────────
-uploaded = render_sidebar()            # <class 'UploadedFile'> | None
-handle_file_upload(uploaded)           # sets .display_image & friends
+    _st_img.image_to_url = _image_to_url           # type: ignore[attr-defined]
+
 
 # ──────────────────────────────  MAIN UI  ─────────────────────────────
 st.divider()
