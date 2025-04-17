@@ -2,9 +2,12 @@
 import streamlit as st
 import logging
 import sys
-import copy # For monkey patch if needed
-import io   # For monkey patch if needed
-import base64 # For monkey patch if needed
+# Imports needed ONLY for monkey-patch now
+import copy
+import io
+import base64
+import os # Keep for getenv potentially used elsewhere, or remove if only in action_handlers
+from typing import Any # Keep for monkey-patch type hint
 
 # --- Configuration and Setup ---
 from config import LOG_LEVEL, LOG_FORMAT, DATE_FORMAT, APP_CSS, FOOTER_MARKDOWN
@@ -20,7 +23,6 @@ st.set_page_config(
 )
 
 # --- Logging Setup ---
-# Prevent duplicate handlers in Streamlit reruns
 for handler in logging.root.handlers[:]: logging.root.removeHandler(handler)
 logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT, datefmt=DATE_FORMAT, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -33,7 +35,6 @@ initialize_session_state()
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
 # --- Check/Apply Monkey Patch (Important for st_canvas) ---
-# Ensure PIL is checked/imported before the patch check
 try: from PIL import Image; PIL_AVAILABLE = True
 except ImportError: PIL_AVAILABLE = False; Image = None
 import streamlit.elements.image as st_image
@@ -60,30 +61,24 @@ if not hasattr(st_image, "image_to_url"):
 else: logger.info("Monkey-patch not needed.")
 
 # --- Render Sidebar and Get Uploaded File ---
-# The file uploader widget is instantiated here
 uploaded_file = render_sidebar()
 
 # --- Process Uploaded File ---
-# This function modifies session state directly
 handle_file_upload(uploaded_file)
 
 # --- Render Main Page Content ---
 st.markdown("---"); st.title("⚕️ RadVision AI Advanced: AI-Assisted Image Analysis")
 with st.expander("User Guide & Disclaimer", expanded=False):
     st.warning("⚠️ **Disclaimer**: For research/educational use ONLY. NOT medical advice.")
-    st.markdown("""**Workflow:** 1.Upload Image 2.(DICOM) Adjust W/L 3.(Optional) Draw ROI 4.AI Analysis (Sidebar) 5.Explore Results (Tabs) 6.(Optional) UMLS Lookup 7.(Optional) Translation 8.(Optional) Confidence 9.Generate Report""")
+    st.markdown("""**Workflow:** 1.Upload 2.(DICOM) W/L 3.(Optional) ROI 4.AI Actions 5.Explore Tabs 6.UMLS Lookup 7.Translate 8.Confidence 9.Report""") # Shortened Guide
 st.markdown("---")
 col1, col2 = st.columns([2, 3]) # Define main columns
 render_main_content(col1, col2) # Render viewer and results tabs
 
 # --- Handle Actions ---
-# Check if an action was triggered in the sidebar (sets session_state.last_action)
 current_action = st.session_state.get("last_action")
 if current_action:
-    # Delegate action handling to the dedicated module
-    # This function will handle backend calls, state updates, and rerun
-    handle_action(current_action)
-    # Note: handle_action resets last_action and calls st.rerun() internally
+    handle_action(current_action) # Delegate to action handler
 
 # --- Render Footer ---
 st.markdown("---")
