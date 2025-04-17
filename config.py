@@ -7,52 +7,71 @@ APP_TITLE = "RadVision AI Advanced"
 APP_ICON = "⚕️" # Or a URL to an image file, e.g., "/static/icon.png"
 
 # --- Session State Defaults ---
+# Defines the initial structure and default values for st.session_state
+# Keys here should match the keys used throughout the application modules.
 DEFAULT_STATE = {
-    "uploaded_file_info": None,
-    "raw_image_bytes": None,
-    "is_dicom": False,
-    "dicom_dataset": None,
-    "dicom_metadata": {},
-    "processed_image": None,    # Image after processing (e.g., windowing)
-    "display_image": None,      # Image currently shown in viewer
-    "session_id": None,
-    "history": [],              # Could store tuples of (action, result)
-    "initial_analysis": "",
-    "qa_answer": "",
-    "disease_analysis": "",
-    "confidence_score": "",     # Could be numeric or text
-    "last_action": None,        # Tracks the last button pressed
-    "pdf_report_bytes": None,   # Stores generated PDF data
-    "canvas_drawing": None,     # State from streamlit-drawable-canvas
-    "roi_coords": None,         # Extracted ROI (x, y, w, h)
-    "current_display_wc": None, # DICOM Window Center
-    "current_display_ww": None, # DICOM Window Width
-    "clear_roi_feedback": False,# Flag to show ROI cleared message
-    "demo_loaded": False,       # Flag if demo mode is active
-    "translation_result": None,
-    "translation_error": None,
-    # --- UMLS Specific State ---
-    "umls_search_term": "",     # For manual lookup input
-    "umls_results": None,       # For manual lookup results (list or dict)
-    "umls_error": None,         # Error message from manual lookup
-    "initial_analysis_umls": [],# List of UMLS concepts from initial analysis text
-    "qa_umls": [],              # List of UMLS concepts from latest Q&A answer
-    "disease_umls": [],         # List of UMLS concepts from disease analysis text
-    # --- End UMLS ---
+    # File/Upload Info
+    "uploaded_file_info": None,     # Dict: {name, size, type} of the last processed file
+    "raw_image_bytes": None,        # Bytes of the uploaded file (useful for reprocessing)
+    "demo_loaded": False,           # Flag if demo mode is active
+
+    # Image Processing & Display
+    "is_dicom": False,              # Boolean indicating if the loaded file is DICOM
+    "dicom_dataset": None,          # pydicom.Dataset object if DICOM
+    "dicom_metadata": None,         # Dict extracted from DICOM headers
+    "display_image": None,          # PIL.Image object ready for display (viewer uses this!)
+    "current_display_wc": None,     # Currently applied DICOM Window Center (Level)
+    "current_display_ww": None,     # Currently applied DICOM Window Width
+
+    # ROI & Canvas
+    "canvas_drawing": None,         # State for streamlit-drawable-canvas (to redraw ROI)
+    "roi_coords": None,             # Dict: {left, top, width, height} of the defined ROI
+
+    # AI Analysis Results
+    "initial_analysis": "",         # Text result from initial analysis LLM call
+    "initial_analysis_umls": [],    # List[UMLSConcept] mapped from initial_analysis
+    "qa_answer": "",                # Text result from the latest Q&A LLM call
+    "qa_umls": [],                  # List[UMLSConcept] mapped from qa_answer
+    "disease_analysis": "",         # Text result from condition-specific analysis
+    "disease_umls": [],             # List[UMLSConcept] mapped from disease_analysis
+    "confidence_score": "",         # Text result from confidence estimation call
+
+    # Interaction State
+    "session_id": None,             # Unique identifier for the session
+    "history": [],                  # List of tuples: (question, answer, umls_concepts) for Q&A
+    "last_action": None,            # String indicating the last sidebar action clicked (e.g., "run_analysis")
+
+    # Optional Features State
+    "pdf_report_bytes": None,       # Bytes of the generated PDF report
+    "translation_result": None,     # Text result from the translation tab
+    "translation_error": None,      # Error message from translation attempt
+    "umls_lookup_term": "",         # Term entered in the manual UMLS lookup tab
+    "umls_lookup_results": None,    # List[UMLSConcept] from manual lookup search
+    "umls_lookup_error": None,      # Error message from manual lookup attempt
+
+    # UI Feedback Flags (Optional)
+    "clear_roi_feedback": False,    # Flag to potentially show a "ROI cleared" message
+
+    # REMOVED: "processed_image" - This seems redundant if "display_image" is the primary
+    # key used for showing the image after all processing (like windowing).
+    # If you have specific intermediate steps, you might keep it, but ensure clarity.
 }
 
 # --- Sidebar UI Elements ---
-TIPS = [ # Keep existing TIPS
-    "Tip: Use 'Demo Mode' for a quick walkthrough.",
-    "Tip: Draw an ROI rectangle on the image viewer.",
-    "Tip: Adjust DICOM Window/Level (W/L) for optimal contrast.",
-    "Tip: Ask specific follow-up questions about the findings.",
-    "Tip: Generate a PDF report to save or share the analysis.",
-    "Tip: Use the 'Translate' tab for findings in other languages.",
-    "Tip: Click 'Clear Image / ROI' to reset the viewer and analysis.",
-    "Tip: Use the 'UMLS Lookup' tab to find medical term definitions.",
+# Tips shown randomly or cyclically in the sidebar
+TIPS = [
+    "Tip: Use 'Demo Mode' for a quick walkthrough with a sample image.",
+    "Tip: Draw an ROI rectangle directly on the image viewer to focus analysis.",
+    "Tip: Adjust DICOM Window/Level (W/L) sliders for optimal image contrast.",
+    "Tip: Ask specific follow-up questions using the 'Ask AI a Question' section.",
+    "Tip: Generate a PDF report to save or share the current analysis findings.",
+    "Tip: Use the 'Translate' tab to view findings in different languages.",
+    "Tip: Click 'Clear Image / ROI' in the sidebar to start fresh.",
+    "Tip: Use the 'UMLS Lookup' tab to find definitions for medical terms.",
 ]
-DISEASE_OPTIONS = [ # Keep existing options
+
+# Options for the condition-specific analysis dropdown
+DISEASE_OPTIONS = [
     "Pneumonia", "Lung Cancer", "Nodule/Mass", "Effusion", "Fracture", "Stroke",
     "Appendicitis", "Bowel Obstruction", "Cardiomegaly", "Aortic Aneurysm",
     "Pulmonary Embolism", "Tuberculosis", "COVID-19", "Brain Tumor",
@@ -60,133 +79,79 @@ DISEASE_OPTIONS = [ # Keep existing options
 ]
 
 # --- UI Content Strings ---
+# Markdown content for the user guide expander
 USER_GUIDE_MARKDOWN = """
-**Typical workflow**
-1.  **Upload** image (DICOM or PNG/JPG) – or enable *Demo Mode*.
-2.  **(DICOM)** adjust *Window / Level* if required using the sidebar controls after upload.
-3.  *(optional)* draw a rectangular **Region of Interest (ROI)** directly on the image.
-4.  Trigger AI actions from the sidebar *(Initial Analysis, Ask a Question, Condition-Specific Analysis)*.
-5.  Explore results in the different tabs (**UMLS**, **Translate**, **Confidence**) as needed.
-6.  Generate a **PDF Report** summarizing the findings.
+**Typical workflow:**
+1.  **Upload** a medical image (DICOM, PNG, JPG) using the sidebar, or enable **Demo Mode**.
+2.  **(If DICOM):** Adjust **Window/Level (W/L)** sliders in the sidebar for best contrast *after* the image loads.
+3.  **(Optional):** Draw a rectangular **Region of Interest (ROI)** directly on the image viewer below.
+4.  Trigger AI actions using the buttons in the sidebar (**Run Initial Analysis**, **Ask AI a Question**, **Analyze Condition**).
+5.  Explore the results, translations, and mapped medical terms (**UMLS**) in the tabs on the right.
+6.  **(Optional):** Generate a **PDF Report** to save the findings.
 """
 
-DISCLAIMER_WARNING = "This tool is intended for research / educational use only. It is **NOT** a substitute for professional medical evaluation or diagnosis."
+# Warning message displayed prominently
+DISCLAIMER_WARNING = "This tool is intended for research/educational use ONLY. It is **NOT** a substitute for professional medical evaluation or diagnosis by qualified healthcare providers."
 
 # --- UMLS Configuration ---
-DEFAULT_UMLS_HITS = 5 # Number of concepts to fetch/display by default in lookups
-# Message displayed if UMLS integration fails or isn't configured
-UMLS_CONFIG_MSG = "Ensure `UMLS_APIKEY` is set in Hugging Face Secrets & restart."
+DEFAULT_UMLS_HITS = 5 # Default number of concepts for manual lookup & auto-mapping
+# User-facing message shown if UMLS API key is missing/invalid
+UMLS_CONFIG_MSG = "Ensure `UMLS_APIKEY` is correctly set in Hugging Face Secrets and restart the Space."
 
 # --- Logging Configuration ---
-# Set level from environment variable or default to INFO
-# Use logging constants for clarity (logging.INFO, logging.DEBUG, etc.)
+# Determine log level from environment variable, defaulting to INFO
 LOG_LEVEL_STR = os.environ.get("LOG_LEVEL", "INFO").upper()
+# Use getattr for safe conversion from string to logging level constant
 LOG_LEVEL = getattr(logging, LOG_LEVEL_STR, logging.INFO)
 
+# Define log format and date format
 LOG_FORMAT = '%(asctime)s - %(levelname)s - [%(name)s:%(funcName)s:%(lineno)d] - %(message)s'
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 # --- CSS Styling ---
-# Keep existing CSS block
+# Keep your existing CSS block here. Ensure it defines necessary styles.
 APP_CSS = """
     <style>
       /* Base styling */
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        /* background-color: #f0f2f6; */ /* Using Streamlit's theme is often better */
-      }
-      .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        padding-left: 1.5rem;
-        padding-right: 1.5rem;
-      }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .main .block-container { padding: 2rem 1.5rem; max-width: 95%; } /* Adjust padding/width */
 
       /* Sidebar styling */
-      .css-1d391kg { /* Specific selector for Streamlit sidebar, might change */
-        /* background-color: #ffffff; */ /* Let theme handle */
-        /* border-right: 1px solid #e0e0e0; */ /* Let theme handle */
-      }
+      /* Use Streamlit theme variables where possible, but override if needed */
+      /* .css-1d391kg { background-color: var(--streamlit-secondary-background-color); } */
 
       /* Button styling */
-      .stButton>button {
-        border-radius: 8px;
-        padding: 0.5rem 1rem;
-        font-weight: 500;
-        width: 100%;
-        margin-bottom: 0.5rem; /* Spacing between buttons */
-      }
-      .stButton>button:hover {
-        filter: brightness(95%); /* Subtle hover effect */
-      }
+      .stButton>button { border-radius: 8px; font-weight: 500; width: 100%; margin-bottom: 0.5rem; }
+      .stButton>button:hover { filter: brightness(95%); }
 
-      /* --- FIX for faint placeholder text in dark mode sidebar inputs --- */
-      /* Adjust selectors based on browser inspection if needed */
-      .stTextArea textarea::placeholder {
-         color: #6c757d !important; /* A slightly darker grey */
-         opacity: 1;
-      }
-      div[data-baseweb="select"] > div:first-child > div:first-child {
-         /* Target selectbox text */
-         /* color: #31333F !important; */ /* Let theme handle text color */
-      }
-      div[data-baseweb="select"] svg {
-         /* Target selectbox dropdown arrow */
-         /* fill: #31333F !important; */ /* Let theme handle icon color */
-      }
-      /* --- End FIX --- */
+      /* Text Area Placeholder Fix (especially for dark mode) */
+      .stTextArea textarea::placeholder { color: #888 !important; opacity: 1; }
 
       /* Tab styling */
       div[role="tablist"] {
-        overflow-x: auto; /* Allow horizontal scrolling for many tabs */
-        white-space: nowrap; /* Prevent tabs from wrapping */
-        border-bottom: 1px solid #e0e0e0; /* Separator line */
-        scrollbar-width: thin; /* Firefox scrollbar */
-        scrollbar-color: #ccc #f0f2f6; /* Firefox scrollbar color */
+          overflow-x: auto; white-space: nowrap; border-bottom: 1px solid var(--streamlit-gray-30);
+          scrollbar-width: thin; scrollbar-color: var(--streamlit-gray-40) var(--streamlit-secondary-background-color);
       }
-      /* Webkit (Chrome, Safari) scrollbar styling */
-      div[role="tablist"]::-webkit-scrollbar {
-        height: 6px;
-      }
-      div[role="tablist"]::-webkit-scrollbar-track {
-        background: #f0f2f6; /* Scrollbar track color */
-      }
-      div[role="tablist"]::-webkit-scrollbar-thumb {
-        background-color: #ccc; /* Scrollbar handle color */
-        border-radius: 10px;
-        border: 2px solid #f0f2f6; /* Padding around thumb */
-      }
+      div[role="tablist"]::-webkit-scrollbar { height: 6px; }
+      div[role="tablist"]::-webkit-scrollbar-track { background: var(--streamlit-secondary-background-color); }
+      div[role="tablist"]::-webkit-scrollbar-thumb { background-color: var(--streamlit-gray-40); border-radius: 10px; border: 2px solid var(--streamlit-secondary-background-color); }
 
       /* Footer styling */
-      footer {
-        text-align: center;
-        font-size: 0.8em;
-        color: #6c757d; /* Grey text */
-        margin-top: 2rem;
-        padding: 1rem 0;
-        border-top: 1px solid #e0e0e0; /* Separator line */
-      }
-      footer p {
-          margin-bottom: 0.25rem; /* Reduce spacing between footer lines */
-      }
-      footer a {
-        color: #007bff; /* Standard link blue */
-        text-decoration: none;
-      }
-      footer a:hover {
-        text-decoration: underline;
-      }
+      footer { text-align: center; font-size: 0.8em; color: var(--streamlit-gray-60); margin-top: 3rem; padding: 1rem 0; border-top: 1px solid var(--streamlit-gray-30); }
+      footer p { margin-bottom: 0.25rem; }
+      footer a { color: var(--streamlit-link-color); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
     </style>
     """
 
 # --- Footer Content ---
-# Keep existing Footer Markdown/HTML
+# Remember to replace placeholder URLs
 FOOTER_MARKDOWN = """
     <footer>
       <p>RadVision AI is for informational/educational use ONLY. Not medical advice.</p>
       <p>
-          <a href="YOUR_PRIVACY_POLICY_URL" target="_blank">Privacy</a> |
-          <a href="YOUR_TERMS_OF_SERVICE_URL" target="_blank">Terms</a> |
+          <a href="YOUR_PRIVACY_POLICY_URL_HERE" target="_blank">Privacy</a> |
+          <a href="YOUR_TERMS_OF_SERVICE_URL_HERE" target="_blank">Terms</a> |
           <a href="https://github.com/mgbam/radvisionai" target="_blank">GitHub</a>
      </p>
     </footer>
