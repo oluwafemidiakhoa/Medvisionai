@@ -1,0 +1,45 @@
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Test and evaluation files
+test_*.py
+evaluation_suite.py
+profiling_ui.py
+fix_google_sheets.py
+test_gold_standard/
+fda_docs/
+
+# Large or unnecessary files
+*.log
+gen.json
+attached_assets/
+.streamlit/
+
+# Keep only essential assets
+!assets/demo.png
+!assets/radvisionai-hero.jpeg

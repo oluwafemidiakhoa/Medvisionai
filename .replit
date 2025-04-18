@@ -1,0 +1,69 @@
+modules = ["python-3.12"]
+run = "streamlit run app.py"
+
+[nix]
+channel = "stable-24_05"
+
+[env]
+REPLIT_DISABLE_PACKAGE_LAYER = "1"
+PYTHONUNBUFFERED = "1"
+STREAMLIT_SERVER_HEADLESS = "true"
+STREAMLIT_SERVER_ENABLE_CORS = "false"
+STREAMLIT_SERVER_ENABLE_WEBSOCKET_COMPRESSION = "false"
+PIP_NO_CACHE_DIR = "1"
+
+[deployment]
+run = ["sh", "-c", "python3 optimize_requirements.py && python3 prepare_for_deployment.py && streamlit run app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true --server.enableCORS=false --server.enableWebsocketCompression=false --server.maxUploadSize=50"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 8501
+externalPort = 80
+
+[workflows]
+runButton = "RadVisionUMLS"
+
+[[workflows.workflow]]
+name = "MedVision"
+author = 19068897
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run app.py --server.address=0.0.0.0 --server.port=8501"
+
+[[workflows.workflow]]
+name = "RadVision"
+author = 19068897
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run app.py --server.address=0.0.0.0 --server.port=8501"
+
+[[workflows.workflow]]
+name = "RadVisionUMLS"
+author = 19068897
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run app.py --server.address=0.0.0.0 --server.port=8501"
+
+[[workflows.workflow]]
+name = "Performance Profiler"
+author = 19068897
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run profiling_ui.py"
+
+[[workflows.workflow]]
+name = "Setup Replit Secrets"
+author = 19068897
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run check_replit_secrets.py"

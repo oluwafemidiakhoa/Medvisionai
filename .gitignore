@@ -1,0 +1,31 @@
+# Environment variables
+.env
+.env.*
+
+# Streamlit cache
+.streamlit/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and temporary files
+cache/
+.cache/
+*.pkl
+
+# Logs
+*.log
+
+# Credentials
+*.pem
+gen.json
+auth_config.json
+
+# Ignore large assets that might be causing LFS issues
+assets/*.jpg
+assets/*.png
+assets/*.jpeg
+assets/radvisionai-hero.jpeg
+assets/demo.png
+# Add specific problematic LFS file
+*8d9e8127868d4c603a15883837ec5cfad7c3afaaaaa22c5b2e83472e61ef1b47**/gen.json

@@ -1,0 +1,19 @@
+
+{
+  "sample_xray_1.jpg": {
+    "conditions": ["pneumonia", "effusion"],
+    "ground_truth": "Findings consistent with right lower lobe pneumonia with small right pleural effusion."
+  },
+  "sample_xray_2.jpg": {
+    "conditions": ["cardiomegaly", "edema"],
+    "ground_truth": "Cardiomegaly with pulmonary edema, suggestive of heart failure."
+  },
+  "sample_xray_3.jpg": {
+    "conditions": ["tuberculosis"],
+    "ground_truth": "Cavitary lesion in the right upper lobe with fibrosis, consistent with tuberculosis."
+  },
+  "sample_normal.jpg": {
+    "conditions": [],
+    "ground_truth": "Normal chest radiograph with no significant abnormalities."
+  }
+}
